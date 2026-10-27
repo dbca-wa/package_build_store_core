@@ -2,59 +2,58 @@
 
 export DH_VERBOSE = 1
 
-# Enable Debian compiler/linker hardening.
+# Enable Debian compiler and linker hardening.
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-# Build configuration.
-PYTHON_PREFIX := /usr/local
 PACKAGE_NAME := python3.15-dbca
 PACKAGE_DIR := $(CURDIR)/debian/$(PACKAGE_NAME)
 BUILD_DIR := $(CURDIR)/build-dbca
+PYTHON_PREFIX := /usr/local
 
+
+#
+# CPython already provides a generated configure script.
+#
+# Do not run dh_autoreconf against the CPython source tree.
+#
 %:
-	dh $@
+	dh $@ --without autoreconf
 
 
 #
-# Configure Python
+# Remove any previous out-of-tree build directory.
 #
-# Equivalent to the Dockerfile:
+override_dh_auto_clean:
+	rm -rf "$(BUILD_DIR)"
+	dh_auto_clean
+
+
 #
-#   ./configure \
-#       --enable-optimizations \
-#       --enable-shared
-#
-# Additionally:
-#   --with-ensurepip=install
-#       ensures pip is installed.
-#
-#   --with-lto
-#       enables link-time optimisation.
-#
-# The resulting Python installation lives under /usr/local.
+# Configure CPython using an out-of-tree build.
 #
 override_dh_auto_configure:
+	rm -rf "$(BUILD_DIR)"
 	mkdir -p "$(BUILD_DIR)"
 
 	cd "$(BUILD_DIR)" && ../configure \
 		--prefix="$(PYTHON_PREFIX)" \
 		--enable-optimizations \
 		--enable-shared \
-		--with-ensurepip=install \
-		--with-lto
+		--with-ensurepip=install
 
 
 #
-# Compile Python
+# Build CPython.
+#
+# DEB_BUILD_OPTIONS can provide the parallel level, but nproc is
+# retained here so this behaves like the original source build.
 #
 override_dh_auto_build:
 	$(MAKE) -C "$(BUILD_DIR)" -j"$$(nproc)"
 
 
 #
-# Run the Python test suite.
-#
-# If a test fails, the Debian package build fails.
+# Run the CPython test suite.
 #
 override_dh_auto_test:
 	$(MAKE) -C "$(BUILD_DIR)" test \
@@ -62,19 +61,9 @@ override_dh_auto_test:
 
 
 #
-# Install Python into the temporary Debian package filesystem.
+# Install CPython into the Debian package staging directory.
 #
-# IMPORTANT:
-#
-# DESTDIR causes:
-#
-#   /usr/local/bin/python3.15
-#
-# to temporarily become:
-#
-#   debian/python3.15-dbca/usr/local/bin/python3.15
-#
-# It does NOT install Python into the pipeline container itself.
+# This does not install anything into the live builder container.
 #
 override_dh_auto_install:
 	$(MAKE) -C "$(BUILD_DIR)" \
@@ -82,15 +71,11 @@ override_dh_auto_install:
 		altinstall
 
 	#
-	# Make DBCA Python 3.15 the default application Python.
+	# Make the DBCA Python build the default application Python.
 	#
-	# /usr/local/bin normally appears before /usr/bin in PATH.
-	#
-	# Therefore:
-	#
-	#   python      -> Python 3.15
-	#   python3     -> Python 3.15
-	#   python3.15  -> Python 3.15
+	# /usr/local/bin normally precedes /usr/bin in PATH, so this
+	# leaves Ubuntu's system Python in /usr/bin intact while making
+	# Python 3.15 the default application interpreter.
 	#
 	ln -sf python3.15 \
 		"$(PACKAGE_DIR)/usr/local/bin/python"
@@ -99,7 +84,7 @@ override_dh_auto_install:
 		"$(PACKAGE_DIR)/usr/local/bin/python3"
 
 	#
-	# pip aliases
+	# Create the pip aliases when ensurepip installed pip3.15.
 	#
 	if [ -e "$(PACKAGE_DIR)/usr/local/bin/pip3.15" ]; then \
 		ln -sf pip3.15 \
@@ -109,13 +94,8 @@ override_dh_auto_install:
 	fi
 
 	#
-	# Register /usr/local/lib with the dynamic linker.
-	#
-	# Required because Python is built with:
-	#
-	#   --enable-shared
-	#
-	# which produces libpython3.15.so.
+	# Register /usr/local/lib because --enable-shared creates
+	# libpython3.15.so under that directory.
 	#
 	install -d \
 		"$(PACKAGE_DIR)/etc/ld.so.conf.d"
@@ -124,10 +104,7 @@ override_dh_auto_install:
 		> "$(PACKAGE_DIR)/etc/ld.so.conf.d/python3.15-dbca.conf"
 
 	#
-	# Remove Python test suites from the runtime package.
-	#
-	# They are useful during compilation/testing but aren't required
-	# in the final runtime image.
+	# Remove test suites from the final runtime package.
 	#
 	rm -rf \
 		"$(PACKAGE_DIR)/usr/local/lib/python3.15/test" \
@@ -135,7 +112,7 @@ override_dh_auto_install:
 		"$(PACKAGE_DIR)/usr/local/lib/python3.15/tkinter/test"
 
 	#
-	# Remove bytecode caches produced while building.
+	# Remove build-generated Python bytecode caches.
 	#
 	find "$(PACKAGE_DIR)" \
 		-type d \
@@ -145,11 +122,11 @@ override_dh_auto_install:
 
 
 #
-# Determine the runtime shared-library dependencies required by
-# the compiled Python executables and extension modules.
+# Calculate native shared-library dependencies for the Python
+# executable and compiled extension modules.
 #
-# The additional library path allows dh_shlibdeps to locate the
-# Python shared library inside the package staging directory.
+# Include the package's staged /usr/local/lib directory so
+# dh_shlibdeps can locate libpython3.15.so.
 #
 override_dh_shlibdeps:
 	dh_shlibdeps \
@@ -157,8 +134,8 @@ override_dh_shlibdeps:
 
 
 #
-# Fail the build if files were generated but weren't placed into
-# a Debian package.
+# Fail if files generated during installation are not included
+# in the resulting Debian package.
 #
 override_dh_missing:
 	dh_missing --fail-missing
