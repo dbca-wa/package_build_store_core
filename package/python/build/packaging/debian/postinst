@@ -1,0 +1,18 @@
+#!/bin/sh
+
+set -e
+
+if command -v ldconfig >/dev/null 2>&1; then
+    ldconfig
+fi
+
+if [ "$1" = "configure" ]; then
+    if [ ! -x /opt/python/3.15/bin/python3.15 ]; then
+        echo "Python 3.15 installation validation failed." >&2
+        exit 1
+    fi
+
+    /opt/python/3.15/bin/python3.15 --version
+fi
+
+exit 0
