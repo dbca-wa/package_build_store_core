@@ -117,7 +117,13 @@ steps:
       ls -lah
       cat SHA256SUMS
     displayName: Stage Debian package
-
+  - bash: |
+      set -euxo pipefail
+      chmod 0755 packaging/debian/rules
+      chmod 0755 packaging/debian/postinst
+      chmod 0755 packaging/debian/postrm
+      ls -l packaging/debian/
+  displayName: Set Debian packaging permissions
   - task: PublishPipelineArtifact@1
     displayName: Publish Python Debian package
     inputs:
