@@ -1,0 +1,43 @@
+Source: python3.15-dbca
+Section: interpreters
+Priority: optional
+Maintainer: DBCA Applications Development <applications@dbca.wa.gov.au>
+Build-Depends:
+ debhelper-compat (= 13),
+ build-essential,
+ libbz2-dev,
+ libdb-dev,
+ libexpat1-dev,
+ libffi-dev,
+ libgdbm-dev,
+ liblzma-dev,
+ libncurses-dev,
+ libreadline-dev,
+ libsqlite3-dev,
+ libssl-dev,
+ libtirpc-dev,
+ pkg-config,
+ tk-dev,
+ uuid-dev,
+ zlib1g-dev
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://www.python.org/
+
+Package: python3.15-dbca
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+ ca-certificates
+Conflicts:
+ python3.15-dbca-minimal
+Replaces:
+ python3.15-dbca-minimal
+Description: DBCA build of the CPython 3.15 interpreter
+ CPython 3.15 compiled from upstream source for DBCA application
+ container images.
+ .
+ The interpreter is installed under /opt/python/3.15 and exposed using
+ version-specific commands. It does not replace the operating system's
+ default /usr/bin/python3 interpreter.
