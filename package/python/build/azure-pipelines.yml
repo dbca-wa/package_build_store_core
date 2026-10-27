@@ -32,9 +32,14 @@ pool:
   vmImage: ubuntu-latest
 
 
-container:
-  image: ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python
-  options: --user 0:0
+resources:
+  containers:
+    - container: pythonbuilder
+      image: ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python
+      options: --user 0:0
+
+pool:
+  vmImage: ubuntu-latest  
 
 
 steps:
@@ -54,6 +59,48 @@ steps:
   # using the GitHub web interface where executable permissions
   # may not have been committed.
   #
+
+  - bash: |
+      set -euxo pipefail
+  
+      echo "=== Identity ==="
+      whoami
+      id
+  
+      echo "=== passwd ==="
+      getent passwd "$(id -u)" || true
+      getent passwd root || true
+      getent passwd runner_azpcontainer || true
+  
+      echo "=== sudo ==="
+      command -v sudo || true
+  
+      echo "=== apt directories ==="
+      ls -ld \
+        /var/lib/apt \
+        /var/lib/apt/lists \
+        /var/cache/apt \
+        /var/cache/apt/archives
+  
+      echo "=== environment ==="
+      echo "HOME=$HOME"
+      echo "USER=${USER:-}"
+      echo "LOGNAME=${LOGNAME:-}"
+  
+    displayName: Diagnose Azure container user
+  
+  - bash: |
+      set -euxo pipefail
+  
+      whoami
+      id
+  
+      if command -v sudo >/dev/null 2>&1; then
+        sudo -n id
+      fi
+  
+    displayName: Check privilege escalation
+  
   - bash: |
       set -euxo pipefail
 
