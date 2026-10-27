@@ -32,14 +32,8 @@ pool:
   vmImage: ubuntu-latest
 
 
-resources:
-  containers:
-    - container: pythonbuilder
-      image: ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python
-      options: --user 0:0
-
-pool:
-  vmImage: ubuntu-latest  
+container:
+  image: ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python
 
 
 steps:
