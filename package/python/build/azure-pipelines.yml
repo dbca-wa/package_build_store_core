@@ -78,7 +78,9 @@ steps:
   #
   - bash: |
       set -euxo pipefail
-
+      
+      whoami
+      
       apt-get update
 
       DEBIAN_FRONTEND=noninteractive apt-get install -y \
