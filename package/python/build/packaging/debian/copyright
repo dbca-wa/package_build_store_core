@@ -1,0 +1,18 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Python
+Source: https://www.python.org/
+
+Files: *
+Copyright: Python Software Foundation
+License: PSF-2
+
+Files: debian/*
+Copyright: DBCA
+License: PSF-2
+
+License: PSF-2
+ This package contains Python software distributed under the Python
+ Software Foundation Licence Version 2.
+ .
+ Refer to the upstream Python source distribution for the complete
+ licence text.
