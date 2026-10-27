@@ -34,6 +34,7 @@ pool:
 
 container:
   image: ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python
+  options: --user 0:0
 
 
 steps:
