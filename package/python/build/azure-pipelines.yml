@@ -1,36 +1,10 @@
-trigger:
-  branches:
-    include:
-      - main
-  paths:
-    include:
-      - azure-pipelines.yml
-      - packaging/**
-
-pr:
-  branches:
-    include:
-      - main
-  paths:
-    include:
-      - azure-pipelines.yml
-      - packaging/**
-
-schedules:
-  - cron: "0 18 * * 0"
-    displayName: Weekly Python package rebuild
-    branches:
-      include:
-        - main
-    always: true
-
 variables:
+  BUILD_PATH: "package/python/build"
   PYTHON_VERSION: "3.15.2"
   PACKAGE_REVISION: "dbca1"
   PACKAGE_NAME: "python3.15-dbca"
 
-  # Set this to the published SHA-256 value before running the pipeline.
-  # This deliberately fails closed instead of building unverified source.
+  # Replace this with the official SHA256 for Python-3.15.2.tgz.
   PYTHON_SHA256: "REPLACE_WITH_PYTHON_3_15_2_SHA256"
 
 pool:
@@ -40,9 +14,26 @@ container:
   image: ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python
 
 steps:
+
   - checkout: self
     clean: true
     fetchDepth: 1
+
+
+  # GitHub web editing cannot conveniently set Unix executable
+  # permissions, so make the Debian scripts executable here.
+  - bash: |
+      set -euxo pipefail
+
+      chmod 0755 package/python/build/packaging/build-deb.sh
+      chmod 0755 package/python/build/packaging/debian/rules
+      chmod 0755 package/python/build/packaging/debian/postinst
+      chmod 0755 package/python/build/packaging/debian/postrm
+
+      ls -la package/python/build/packaging/
+      ls -la package/python/build/packaging/debian/
+    displayName: Set packaging permissions
+
 
   - bash: |
       set -euxo pipefail
@@ -81,18 +72,16 @@ steps:
       rm -rf /var/lib/apt/lists/*
     displayName: Install package build dependencies
 
+
   - bash: |
       set -euxo pipefail
 
       if [ "$(PYTHON_SHA256)" = "REPLACE_WITH_PYTHON_3_15_2_SHA256" ]; then
         echo "##vso[task.logissue type=error]PYTHON_SHA256 has not been configured."
-        echo "Set PYTHON_SHA256 to the official Python 3.15.2 source archive SHA-256."
         exit 1
       fi
 
-      chmod +x packaging/build-deb.sh
-
-      packaging/build-deb.sh \
+      package/python/build/packaging/build-deb.sh \
         "$(PYTHON_VERSION)" \
         "$(PACKAGE_REVISION)" \
         "$(PYTHON_SHA256)"
@@ -100,30 +89,30 @@ steps:
     env:
       DEB_BUILD_OPTIONS: "parallel=$(nproc)"
 
+
   - bash: |
       set -euxo pipefail
 
       mkdir -p "$(Build.ArtifactStagingDirectory)/python-deb"
 
-      find "$(Build.SourcesDirectory)/dist" \
+      find "$(Build.SourcesDirectory)/package/python/build/dist" \
         -maxdepth 1 \
         -type f \
         -exec cp -v {} "$(Build.ArtifactStagingDirectory)/python-deb/" \;
 
       cd "$(Build.ArtifactStagingDirectory)/python-deb"
+
       sha256sum ./*.deb > SHA256SUMS
 
       echo "Published files:"
       ls -lah
+
+      echo
+      echo "Checksums:"
       cat SHA256SUMS
     displayName: Stage Debian package
-  - bash: |
-      set -euxo pipefail
-      chmod 0755 packaging/debian/rules
-      chmod 0755 packaging/debian/postinst
-      chmod 0755 packaging/debian/postrm
-      ls -l packaging/debian/
-  displayName: Set Debian packaging permissions
+
+
   - task: PublishPipelineArtifact@1
     displayName: Publish Python Debian package
     inputs:
