@@ -1,0 +1,8 @@
+python3.15-dbca (@PACKAGE_VERSION@) resolute; urgency=medium
+
+  * Compile CPython 3.15.2 from upstream source.
+  * Install Python under /opt/python/3.15.
+  * Provide version-specific python3.15 and pip3.15 commands.
+  * Build with shared libraries and profile-guided optimisation.
+
+ -- DBCA Applications Development <applications@dbca.wa.gov.au>  @BUILD_DATE@
