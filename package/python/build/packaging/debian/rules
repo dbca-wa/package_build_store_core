@@ -1,0 +1,74 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -fPIC
+export DEB_CXXFLAGS_MAINT_APPEND = -fPIC
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,-rpath,/opt/python/3.15/lib
+
+PYTHON_PREFIX := /opt/python/3.15
+PACKAGE_DIR := $(CURDIR)/debian/python3.15-dbca
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	mkdir -p build-dbca
+	cd build-dbca && ../configure \
+		--prefix=$(PYTHON_PREFIX) \
+		--enable-optimizations \
+		--enable-shared \
+		--with-ensurepip=install \
+		--with-lto \
+		--with-system-expat \
+		--with-system-ffi
+
+override_dh_auto_build:
+	$(MAKE) -C build-dbca -j"$$(nproc)"
+
+override_dh_auto_test:
+	$(MAKE) -C build-dbca test \
+		TESTOPTS="-j$$(nproc) --timeout 120" \
+		|| { \
+			echo "Python test suite failed"; \
+			exit 1; \
+		}
+
+override_dh_auto_install:
+	$(MAKE) -C build-dbca \
+		DESTDIR="$(PACKAGE_DIR)" \
+		altinstall
+
+	install -d "$(PACKAGE_DIR)/usr/bin"
+	ln -s /opt/python/3.15/bin/python3.15 \
+		"$(PACKAGE_DIR)/usr/bin/python3.15"
+
+	if [ -e "$(PACKAGE_DIR)/opt/python/3.15/bin/pip3.15" ]; then \
+		ln -s /opt/python/3.15/bin/pip3.15 \
+			"$(PACKAGE_DIR)/usr/bin/pip3.15"; \
+	fi
+
+	install -d "$(PACKAGE_DIR)/etc/ld.so.conf.d"
+	printf '%s\n' '/opt/python/3.15/lib' \
+		> "$(PACKAGE_DIR)/etc/ld.so.conf.d/python3.15-dbca.conf"
+
+	rm -rf \
+		"$(PACKAGE_DIR)/opt/python/3.15/lib/python3.15/test" \
+		"$(PACKAGE_DIR)/opt/python/3.15/lib/python3.15/idlelib/idle_test" \
+		"$(PACKAGE_DIR)/opt/python/3.15/lib/python3.15/tkinter/test"
+
+	find "$(PACKAGE_DIR)" \
+		-type d \
+		-name __pycache__ \
+		-prune \
+		-exec rm -rf {} +
+
+override_dh_strip:
+	dh_strip --dbgsym-migration='python3.15-dbca-dbg (<< 3.15.2)'
+
+override_dh_shlibdeps:
+	dh_shlibdeps \
+		-l$(PACKAGE_DIR)/opt/python/3.15/lib
+
+override_dh_missing:
+	dh_missing --fail-missing
