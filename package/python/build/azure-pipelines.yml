@@ -20,11 +20,6 @@ variables:
   PYTHON_VERSION: "3.15.2"
   PACKAGE_REVISION: "dbca1"
   PACKAGE_NAME: "python3.15-dbca"
-
-  # Replace this with the official SHA256 checksum for:
-  # Python-3.15.2.tgz
-  PYTHON_SHA256: "REPLACE_WITH_PYTHON_3_15_2_SHA256"
-
   BUILD_IMAGE: "ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python"
 
 
@@ -206,11 +201,6 @@ steps:
           echo "========================================"
           echo "Build Python Debian package"
           echo "========================================"
-
-          if [ "${PYTHON_SHA256}" = "REPLACE_WITH_PYTHON_3_15_2_SHA256" ]; then
-              echo "ERROR: PYTHON_SHA256 has not been configured."
-              exit 1
-          fi
 
           package/python/build/packaging/build-deb.sh \
             "${PYTHON_VERSION}" \
