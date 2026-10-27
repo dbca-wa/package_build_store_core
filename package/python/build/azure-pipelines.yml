@@ -89,16 +89,27 @@ steps:
   # Instead, Docker is invoked directly and the build container
   # is explicitly started as UID/GID 0.
   #
-   - bash: |
+  #
+  # Build the Python Debian package.
+  #
+  # Run Docker directly rather than using an Azure container job.
+  #
+  - bash: |
       set -euxo pipefail
 
       rm -rf "$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
       mkdir -p "$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
 
+      echo "Starting build container:"
+      echo "$(BUILD_IMAGE)"
+
       docker run --rm \
         --user 0:0 \
         --volume "$(Build.SourcesDirectory):/workspace" \
         --workdir /workspace \
+        --env PYTHON_VERSION \
+        --env PACKAGE_REVISION \
+        --env PYTHON_SHA256 \
         "$(BUILD_IMAGE)" \
         bash -c '
           set -euxo pipefail
@@ -114,6 +125,14 @@ steps:
               echo "ERROR: Build container is not running as root."
               exit 1
           fi
+
+          echo
+          echo "========================================"
+          echo "Build parameters"
+          echo "========================================"
+
+          echo "Python version: ${PYTHON_VERSION}"
+          echo "Package revision: ${PACKAGE_REVISION}"
 
           echo
           echo "========================================"
@@ -169,6 +188,9 @@ steps:
             package/python/build/packaging/debian/postinst \
             package/python/build/packaging/debian/postrm
 
+          ls -la package/python/build/packaging
+          ls -la package/python/build/packaging/debian
+
           echo
           echo "========================================"
           echo "Verify build tools"
@@ -185,10 +207,15 @@ steps:
           echo "Build Python Debian package"
           echo "========================================"
 
+          if [ "${PYTHON_SHA256}" = "REPLACE_WITH_PYTHON_3_15_2_SHA256" ]; then
+              echo "ERROR: PYTHON_SHA256 has not been configured."
+              exit 1
+          fi
+
           package/python/build/packaging/build-deb.sh \
-            "$PYTHON_VERSION" \
-            "$PACKAGE_REVISION" \
-            "$PYTHON_SHA256"
+            "${PYTHON_VERSION}" \
+            "${PACKAGE_REVISION}" \
+            "${PYTHON_SHA256}"
 
           echo
           echo "========================================"
@@ -199,12 +226,15 @@ steps:
             -maxdepth 1 \
             -type f \
             -exec ls -lh {} \;
+
+          echo
+          echo "========================================"
+          echo "Build completed"
+          echo "========================================"
         '
 
     displayName: Compile Python and build Debian package
-
     env:
       PYTHON_VERSION: $(PYTHON_VERSION)
       PACKAGE_REVISION: $(PACKAGE_REVISION)
       PYTHON_SHA256: $(PYTHON_SHA256)
-      BUILD_IMAGE: $(BUILD_IMAGE)
