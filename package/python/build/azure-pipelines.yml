@@ -89,16 +89,122 @@ steps:
   # Instead, Docker is invoked directly and the build container
   # is explicitly started as UID/GID 0.
   #
-  - bash: |
+   - bash: |
       set -euxo pipefail
 
       rm -rf "$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
       mkdir -p "$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
 
-      docker run \
-        --rm \
+      docker run --rm \
         --user 0:0 \
         --volume "$(Build.SourcesDirectory):/workspace" \
         --workdir /workspace \
-        --env PYTHON_VERSION="$(PYTHON_VERSION)" \
-     
+        "$(BUILD_IMAGE)" \
+        bash -c '
+          set -euxo pipefail
+
+          echo "========================================"
+          echo "Container identity"
+          echo "========================================"
+
+          whoami
+          id
+
+          if [ "$(id -u)" -ne 0 ]; then
+              echo "ERROR: Build container is not running as root."
+              exit 1
+          fi
+
+          echo
+          echo "========================================"
+          echo "Operating system"
+          echo "========================================"
+
+          cat /etc/os-release
+
+          echo
+          echo "========================================"
+          echo "Install Debian build dependencies"
+          echo "========================================"
+
+          apt-get update
+
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential \
+            ca-certificates \
+            curl \
+            debhelper \
+            devscripts \
+            dpkg-dev \
+            fakeroot \
+            file \
+            gcc \
+            g++ \
+            libbz2-dev \
+            libdb-dev \
+            libexpat1-dev \
+            libffi-dev \
+            libgdbm-dev \
+            liblzma-dev \
+            libncurses-dev \
+            libreadline-dev \
+            libsqlite3-dev \
+            libssl-dev \
+            libtirpc-dev \
+            libuuid1 \
+            pkg-config \
+            tk-dev \
+            uuid-dev \
+            xz-utils \
+            zlib1g-dev
+
+          echo
+          echo "========================================"
+          echo "Set packaging permissions"
+          echo "========================================"
+
+          chmod 0755 \
+            package/python/build/packaging/build-deb.sh \
+            package/python/build/packaging/debian/rules \
+            package/python/build/packaging/debian/postinst \
+            package/python/build/packaging/debian/postrm
+
+          echo
+          echo "========================================"
+          echo "Verify build tools"
+          echo "========================================"
+
+          gcc --version
+          g++ --version
+          make --version
+          dpkg-buildpackage --version
+          dpkg-deb --version
+
+          echo
+          echo "========================================"
+          echo "Build Python Debian package"
+          echo "========================================"
+
+          package/python/build/packaging/build-deb.sh \
+            "$PYTHON_VERSION" \
+            "$PACKAGE_REVISION" \
+            "$PYTHON_SHA256"
+
+          echo
+          echo "========================================"
+          echo "Generated files"
+          echo "========================================"
+
+          find package/python/build/dist \
+            -maxdepth 1 \
+            -type f \
+            -exec ls -lh {} \;
+        '
+
+    displayName: Compile Python and build Debian package
+
+    env:
+      PYTHON_VERSION: $(PYTHON_VERSION)
+      PACKAGE_REVISION: $(PACKAGE_REVISION)
+      PYTHON_SHA256: $(PYTHON_SHA256)
+      BUILD_IMAGE: $(BUILD_IMAGE)
