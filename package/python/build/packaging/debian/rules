@@ -17,8 +17,18 @@ PYTHON_PREFIX := /usr/local
 # Do not run dh_autoreconf against the CPython source tree.
 #
 %:
-	dh $@ --without autoreconf --without usrlocal
+	dh $@ --without autoreconf 
 
+#
+# Python is intentionally packaged under /usr/local.
+#
+# dh_usrlocal normally expects /usr/local to contain directories
+# that are created by package maintainer scripts.  We are shipping
+# actual Python binaries and libraries there, so it must not process
+# this tree.
+#
+override_dh_usrlocal:
+	@echo "Skipping dh_usrlocal - Python is intentionally packaged under /usr/local"
 
 #
 # Remove any previous out-of-tree build directory.
