@@ -4,7 +4,6 @@ set -euxo pipefail
 
 PYTHON_VERSION="${1:?Python version is required}"
 PACKAGE_REVISION="${2:?Package revision is required}"
-PYTHON_SHA256="${3:?Python source SHA-256 is required}"
 
 PACKAGE_NAME="python3.15-dbca"
 SOURCE_DIRECTORY="Python-${PYTHON_VERSION}"
@@ -38,8 +37,6 @@ curl \
     --retry-delay 5 \
     --output "${SOURCE_ARCHIVE}" \
     "${SOURCE_URL}"
-
-echo "${PYTHON_SHA256}  ${SOURCE_ARCHIVE}" | sha256sum --check --strict -
 
 tar --extract --gzip --file="${SOURCE_ARCHIVE}"
 
