@@ -1,64 +1,164 @@
 #!/usr/bin/make -f
 
 export DH_VERBOSE = 1
+
+# Enable Debian compiler/linker hardening.
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
-PACKAGE_DIR := $(CURDIR)/debian/python3.15-dbca
+# Build configuration.
+PYTHON_PREFIX := /usr/local
+PACKAGE_NAME := python3.15-dbca
+PACKAGE_DIR := $(CURDIR)/debian/$(PACKAGE_NAME)
+BUILD_DIR := $(CURDIR)/build-dbca
 
 %:
 	dh $@
 
+
+#
+# Configure Python
+#
+# Equivalent to the Dockerfile:
+#
+#   ./configure \
+#       --enable-optimizations \
+#       --enable-shared
+#
+# Additionally:
+#   --with-ensurepip=install
+#       ensures pip is installed.
+#
+#   --with-lto
+#       enables link-time optimisation.
+#
+# The resulting Python installation lives under /usr/local.
+#
 override_dh_auto_configure:
-	mkdir -p build-dbca
-	cd build-dbca && ../configure \
-		--prefix=/usr/local \
+	mkdir -p "$(BUILD_DIR)"
+
+	cd "$(BUILD_DIR)" && ../configure \
+		--prefix="$(PYTHON_PREFIX)" \
 		--enable-optimizations \
 		--enable-shared \
 		--with-ensurepip=install \
-		--with-lto \
-		--with-system-expat \
-		--with-system-ffi
+		--with-lto
 
+
+#
+# Compile Python
+#
 override_dh_auto_build:
-	$(MAKE) -C build-dbca -j"$$(nproc)"
+	$(MAKE) -C "$(BUILD_DIR)" -j"$$(nproc)"
 
+
+#
+# Run the Python test suite.
+#
+# If a test fails, the Debian package build fails.
+#
 override_dh_auto_test:
-	$(MAKE) -C build-dbca test \
+	$(MAKE) -C "$(BUILD_DIR)" test \
 		TESTOPTS="-j$$(nproc) --timeout 120"
 
+
+#
+# Install Python into the temporary Debian package filesystem.
+#
+# IMPORTANT:
+#
+# DESTDIR causes:
+#
+#   /usr/local/bin/python3.15
+#
+# to temporarily become:
+#
+#   debian/python3.15-dbca/usr/local/bin/python3.15
+#
+# It does NOT install Python into the pipeline container itself.
+#
 override_dh_auto_install:
-	$(MAKE) -C build-dbca \
+	$(MAKE) -C "$(BUILD_DIR)" \
 		DESTDIR="$(PACKAGE_DIR)" \
 		altinstall
 
-	install -d "$(PACKAGE_DIR)/usr/bin"
+	#
+	# Make DBCA Python 3.15 the default application Python.
+	#
+	# /usr/local/bin normally appears before /usr/bin in PATH.
+	#
+	# Therefore:
+	#
+	#   python      -> Python 3.15
+	#   python3     -> Python 3.15
+	#   python3.15  -> Python 3.15
+	#
+	ln -sf python3.15 \
+		"$(PACKAGE_DIR)/usr/local/bin/python"
 
-	ln -sf /usr/local/bin/python3.15 \
-		"$(PACKAGE_DIR)/usr/bin/python"
+	ln -sf python3.15 \
+		"$(PACKAGE_DIR)/usr/local/bin/python3"
 
-	ln -sf /usr/local/bin/python3.15 \
-		"$(PACKAGE_DIR)/usr/bin/python3"
+	#
+	# pip aliases
+	#
+	if [ -e "$(PACKAGE_DIR)/usr/local/bin/pip3.15" ]; then \
+		ln -sf pip3.15 \
+			"$(PACKAGE_DIR)/usr/local/bin/pip"; \
+		ln -sf pip3.15 \
+			"$(PACKAGE_DIR)/usr/local/bin/pip3"; \
+	fi
 
-	ln -sf /usr/local/bin/python3.15 \
-		"$(PACKAGE_DIR)/usr/bin/python3.15"
-
-	ln -sf /usr/local/bin/pip3.15 \
-		"$(PACKAGE_DIR)/usr/bin/pip"
-
-	ln -sf /usr/local/bin/pip3.15 \
-		"$(PACKAGE_DIR)/usr/bin/pip3"
-
-	ln -sf /usr/local/bin/pip3.15 \
-		"$(PACKAGE_DIR)/usr/bin/pip3.15"
-
-	install -d "$(PACKAGE_DIR)/etc/ld.so.conf.d"
+	#
+	# Register /usr/local/lib with the dynamic linker.
+	#
+	# Required because Python is built with:
+	#
+	#   --enable-shared
+	#
+	# which produces libpython3.15.so.
+	#
+	install -d \
+		"$(PACKAGE_DIR)/etc/ld.so.conf.d"
 
 	printf '%s\n' '/usr/local/lib' \
 		> "$(PACKAGE_DIR)/etc/ld.so.conf.d/python3.15-dbca.conf"
 
+	#
+	# Remove Python test suites from the runtime package.
+	#
+	# They are useful during compilation/testing but aren't required
+	# in the final runtime image.
+	#
+	rm -rf \
+		"$(PACKAGE_DIR)/usr/local/lib/python3.15/test" \
+		"$(PACKAGE_DIR)/usr/local/lib/python3.15/idlelib/idle_test" \
+		"$(PACKAGE_DIR)/usr/local/lib/python3.15/tkinter/test"
+
+	#
+	# Remove bytecode caches produced while building.
+	#
+	find "$(PACKAGE_DIR)" \
+		-type d \
+		-name '__pycache__' \
+		-prune \
+		-exec rm -rf '{}' '+'
+
+
+#
+# Determine the runtime shared-library dependencies required by
+# the compiled Python executables and extension modules.
+#
+# The additional library path allows dh_shlibdeps to locate the
+# Python shared library inside the package staging directory.
+#
 override_dh_shlibdeps:
 	dh_shlibdeps \
-		-l$(PACKAGE_DIR)/usr/local/lib
+		-l"$(PACKAGE_DIR)/usr/local/lib"
 
+
+#
+# Fail the build if files were generated but weren't placed into
+# a Debian package.
+#
 override_dh_missing:
 	dh_missing --fail-missing
