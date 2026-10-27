@@ -1,0 +1,126 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - azure-pipelines.yml
+      - packaging/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - azure-pipelines.yml
+      - packaging/**
+
+schedules:
+  - cron: "0 18 * * 0"
+    displayName: Weekly Python package rebuild
+    branches:
+      include:
+        - main
+    always: true
+
+variables:
+  PYTHON_VERSION: "3.15.2"
+  PACKAGE_REVISION: "dbca1"
+  PACKAGE_NAME: "python3.15-dbca"
+
+  # Set this to the published SHA-256 value before running the pipeline.
+  # This deliberately fails closed instead of building unverified source.
+  PYTHON_SHA256: "REPLACE_WITH_PYTHON_3_15_2_SHA256"
+
+pool:
+  vmImage: ubuntu-latest
+
+container:
+  image: ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python
+
+steps:
+  - checkout: self
+    clean: true
+    fetchDepth: 1
+
+  - bash: |
+      set -euxo pipefail
+
+      apt-get update
+
+      DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        build-essential \
+        ca-certificates \
+        curl \
+        debhelper \
+        devscripts \
+        dpkg-dev \
+        fakeroot \
+        file \
+        gcc \
+        g++ \
+        libbz2-dev \
+        libdb-dev \
+        libexpat1-dev \
+        libffi-dev \
+        libgdbm-dev \
+        liblzma-dev \
+        libncurses-dev \
+        libreadline-dev \
+        libsqlite3-dev \
+        libssl-dev \
+        libtirpc-dev \
+        libuuid1 \
+        pkg-config \
+        tk-dev \
+        uuid-dev \
+        xz-utils \
+        zlib1g-dev
+
+      rm -rf /var/lib/apt/lists/*
+    displayName: Install package build dependencies
+
+  - bash: |
+      set -euxo pipefail
+
+      if [ "$(PYTHON_SHA256)" = "REPLACE_WITH_PYTHON_3_15_2_SHA256" ]; then
+        echo "##vso[task.logissue type=error]PYTHON_SHA256 has not been configured."
+        echo "Set PYTHON_SHA256 to the official Python 3.15.2 source archive SHA-256."
+        exit 1
+      fi
+
+      chmod +x packaging/build-deb.sh
+
+      packaging/build-deb.sh \
+        "$(PYTHON_VERSION)" \
+        "$(PACKAGE_REVISION)" \
+        "$(PYTHON_SHA256)"
+    displayName: Compile Python and build Debian package
+    env:
+      DEB_BUILD_OPTIONS: "parallel=$(nproc)"
+
+  - bash: |
+      set -euxo pipefail
+
+      mkdir -p "$(Build.ArtifactStagingDirectory)/python-deb"
+
+      find "$(Build.SourcesDirectory)/dist" \
+        -maxdepth 1 \
+        -type f \
+        -exec cp -v {} "$(Build.ArtifactStagingDirectory)/python-deb/" \;
+
+      cd "$(Build.ArtifactStagingDirectory)/python-deb"
+      sha256sum ./*.deb > SHA256SUMS
+
+      echo "Published files:"
+      ls -lah
+      cat SHA256SUMS
+    displayName: Stage Debian package
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish Python Debian package
+    inputs:
+      targetPath: "$(Build.ArtifactStagingDirectory)/python-deb"
+      artifact: "python-3.15-debian-package"
+      publishLocation: "pipeline"
