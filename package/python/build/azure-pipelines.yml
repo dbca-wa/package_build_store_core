@@ -104,7 +104,6 @@ steps:
         --workdir /workspace \
         --env PYTHON_VERSION \
         --env PACKAGE_REVISION \
-        --env PYTHON_SHA256 \
         "$(BUILD_IMAGE)" \
         bash -c '
           set -euxo pipefail
@@ -204,8 +203,7 @@ steps:
 
           package/python/build/packaging/build-deb.sh \
             "${PYTHON_VERSION}" \
-            "${PACKAGE_REVISION}" \
-            "${PYTHON_SHA256}"
+            "${PACKAGE_REVISION}" 
 
           echo
           echo "========================================"
@@ -227,4 +225,3 @@ steps:
     env:
       PYTHON_VERSION: $(PYTHON_VERSION)
       PACKAGE_REVISION: $(PACKAGE_REVISION)
-      PYTHON_SHA256: $(PYTHON_SHA256)
