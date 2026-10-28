@@ -138,7 +138,6 @@ jobs:
               echo "========================================"
 
               /usr/local/bin/python3.15 --version
-
               /usr/local/bin/python3.15-config --includes
               /usr/local/bin/python3.15-config --ldflags --embed
 
@@ -223,6 +222,110 @@ jobs:
 
               echo
               echo "========================================"
+              echo "Build and install Ninja"
+              echo "========================================"
+
+              rm -rf /tmp/ninja
+
+              git clone \
+                --depth 1 \
+                --branch release \
+                https://github.com/ninja-build/ninja.git \
+                /tmp/ninja
+
+              cd /tmp/ninja
+
+              /usr/local/bin/python3.15 configure.py --bootstrap
+
+              install \
+                -m 0755 \
+                /tmp/ninja/ninja \
+                /usr/local/bin/ninja
+
+              /usr/local/bin/ninja --version
+
+              rm -rf /tmp/ninja
+
+
+              echo
+              echo "========================================"
+              echo "Download and install Meson"
+              echo "========================================"
+
+              MESON_VERSION="$(
+                curl -fsSL \
+                  https://api.github.com/repos/mesonbuild/meson/releases/latest \
+                  | sed -n \
+                    '"'"'s/.*"tag_name": *"\([^"]*\)".*/\1/p'"'"'
+              )"
+
+              if [ -z "${MESON_VERSION}" ]; then
+                  echo "ERROR: Unable to determine the latest Meson version."
+                  exit 1
+              fi
+
+              echo "Meson version: ${MESON_VERSION}"
+
+              rm -rf /opt/meson
+              rm -f /tmp/meson.tar.gz
+
+              mkdir -p /opt/meson
+
+              curl \
+                --fail \
+                --show-error \
+                --location \
+                --retry 5 \
+                --retry-delay 10 \
+                "https://github.com/mesonbuild/meson/releases/download/${MESON_VERSION}/meson-${MESON_VERSION}.tar.gz" \
+                --output /tmp/meson.tar.gz
+
+              tar \
+                --extract \
+                --gzip \
+                --file /tmp/meson.tar.gz \
+                --strip-components=1 \
+                --directory /opt/meson
+
+              chmod 0755 /opt/meson/meson.py
+
+              ln -sf \
+                /opt/meson/meson.py \
+                /usr/local/bin/meson
+
+              /usr/local/bin/meson --version
+
+              rm -f /tmp/meson.tar.gz
+
+
+              echo
+              echo "========================================"
+              echo "Verify Ninja and Meson"
+              echo "========================================"
+
+              export PATH="/usr/local/bin:${PATH}"
+
+              command -v ninja
+              command -v meson
+
+              ninja --version
+              meson --version
+
+              test -x /usr/local/bin/ninja
+              test -x /usr/local/bin/meson
+
+
+              echo
+              echo "========================================"
+              echo "Return to repository workspace"
+              echo "========================================"
+
+              cd /workspace
+              pwd
+
+
+              echo
+              echo "========================================"
               echo "Set packaging permissions"
               echo "========================================"
 
@@ -260,6 +363,8 @@ jobs:
               dpkg-deb --version
 
               /usr/local/bin/python3.15 --version
+              /usr/local/bin/ninja --version
+              /usr/local/bin/meson --version
 
 
               echo
@@ -267,7 +372,7 @@ jobs:
               echo "Build LibreOffice Debian package"
               echo "========================================"
 
-              cd package/libreoffice/build
+              cd /workspace/package/libreoffice/build
 
               ./build-package.sh
 
