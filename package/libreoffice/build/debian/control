@@ -17,7 +17,6 @@ Build-Depends:
  libboost-dev,
  libclucene-dev,
  libcppunit-dev,
- libcups2-dev,
  libcurl4-openssl-dev,
  libepoxy-dev,
  libexpat1-dev,
