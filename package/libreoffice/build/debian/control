@@ -1,7 +1,7 @@
 Source: libreoffice-dbca
 Section: editors
 Priority: optional
-Maintainer: DBCA Applications Development and Integration
+Maintainer: DBCA Applications Development and Integration <no-reply@dbca.wa.gov.au>
 Build-Depends:
  debhelper-compat (= 13),
  build-essential,
