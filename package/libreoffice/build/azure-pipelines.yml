@@ -22,9 +22,6 @@ variables:
   LIBREOFFICE_VERSION_MINOR: "3"
   PACKAGE_REVISION: "dbca1"
   PACKAGE_NAME: "libreoffice-dbca"
-
-  # Same DBCA Ubuntu 26.04 / Python 3.15 image used by
-  # the Python package pipeline.
   BUILD_IMAGE: "ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python"
 
 pool:
@@ -33,7 +30,6 @@ pool:
 jobs:
   - job: BuildLibreOffice
     displayName: Build LibreOffice Debian package
-
     timeoutInMinutes: 360
 
     steps:
@@ -44,6 +40,7 @@ jobs:
       - checkout: self
         clean: true
         fetchDepth: 1
+
 
       #
       # Display Azure host information.
@@ -65,20 +62,23 @@ jobs:
           echo
           echo "Build source directory:"
           echo "$(Build.SourcesDirectory)"
+
         displayName: Display build environment
 
+
       #
-      # Pull the same DBCA Ubuntu 26.04 Python image
-      # used by package/python/build.
+      # Pull DBCA Ubuntu 26.04 / Python 3.15 build image.
       #
       - bash: |
           set -euxo pipefail
 
           docker pull "$(BUILD_IMAGE)"
+
         displayName: Pull DBCA Ubuntu 26.04 Python build image
 
+
       #
-      # Prepare output directory on the Azure host.
+      # Prepare output directory.
       #
       - bash: |
           set -euxo pipefail
@@ -87,11 +87,12 @@ jobs:
 
           rm -rf "${DIST_DIR}"
           mkdir -p "${DIST_DIR}"
+
         displayName: Prepare LibreOffice build directory
 
+
       #
-      # Run the complete LibreOffice build inside the
-      # DBCA Ubuntu 26.04 / Python 3.15 image.
+      # Build LibreOffice inside DBCA Ubuntu 26.04 / Python 3.15.
       #
       - bash: |
           set -euxo pipefail
@@ -111,6 +112,8 @@ jobs:
             bash -c '
               set -euxo pipefail
 
+
+              echo
               echo "========================================"
               echo "Container identity"
               echo "========================================"
@@ -222,76 +225,70 @@ jobs:
 
               echo
               echo "========================================"
-              echo "Build and install Ninja"
+              echo "Build and install latest Ninja"
               echo "========================================"
+
+              cd /tmp
 
               rm -rf /tmp/ninja
 
               git clone \
                 --depth 1 \
                 --branch release \
-                https://github.com/ninja-build/ninja.git \
-                /tmp/ninja
+                https://github.com/ninja-build/ninja.git
 
-              cd /tmp/ninja
+              cd ninja
 
               /usr/local/bin/python3.15 configure.py --bootstrap
 
-              install \
-                -m 0755 \
-                /tmp/ninja/ninja \
-                /usr/local/bin/ninja
+              install -m 0755 ninja /usr/local/bin/ninja
 
               /usr/local/bin/ninja --version
+
+              cd /
 
               rm -rf /tmp/ninja
 
 
               echo
               echo "========================================"
-              echo "Download and install Meson"
+              echo "Download and install latest Meson"
               echo "========================================"
 
-              MESON_VERSION="$(
+              export MESON_VERSION="$(
                 curl -fsSL \
                   https://api.github.com/repos/mesonbuild/meson/releases/latest \
-                  | sed -n \
-                    '"'"'s/.*"tag_name": *"\([^"]*\)".*/\1/p'"'"'
+                  | sed -n '"'"'s/.*"tag_name": *"\([^"]*\)".*/\1/p'"'"'
               )"
 
               if [ -z "${MESON_VERSION}" ]; then
-                  echo "ERROR: Unable to determine the latest Meson version."
+                  echo "ERROR: Unable to determine latest Meson version."
                   exit 1
               fi
 
-              echo "Meson version: ${MESON_VERSION}"
+              echo "Building Meson ${MESON_VERSION}"
+
+              cd /tmp
 
               rm -rf /opt/meson
               rm -f /tmp/meson.tar.gz
 
-              mkdir -p /opt/meson
-
-              curl \
-                --fail \
-                --show-error \
-                --location \
-                --retry 5 \
-                --retry-delay 10 \
+              curl -fsSL \
                 "https://github.com/mesonbuild/meson/releases/download/${MESON_VERSION}/meson-${MESON_VERSION}.tar.gz" \
-                --output /tmp/meson.tar.gz
+                -o meson.tar.gz
+
+              mkdir /opt/meson
 
               tar \
-                --extract \
-                --gzip \
-                --file /tmp/meson.tar.gz \
+                -xzf meson.tar.gz \
                 --strip-components=1 \
-                --directory /opt/meson
+                -C /opt/meson
 
-              chmod 0755 /opt/meson/meson.py
-
-              ln -sf \
+              ln -s \
                 /opt/meson/meson.py \
                 /usr/local/bin/meson
+
+              chmod +x /opt/meson/meson.py
 
               /usr/local/bin/meson --version
 
@@ -308,8 +305,8 @@ jobs:
               command -v ninja
               command -v meson
 
-              ninja --version
-              meson --version
+              /usr/local/bin/ninja --version
+              /usr/local/bin/meson --version
 
               test -x /usr/local/bin/ninja
               test -x /usr/local/bin/meson
@@ -353,7 +350,7 @@ jobs:
 
               echo
               echo "========================================"
-              echo "Verify build tools"
+              echo "Verify all build tools"
               echo "========================================"
 
               gcc --version
@@ -362,8 +359,16 @@ jobs:
               dpkg-buildpackage --version
               dpkg-deb --version
 
+              echo
+              echo "Python:"
               /usr/local/bin/python3.15 --version
+
+              echo
+              echo "Ninja:"
               /usr/local/bin/ninja --version
+
+              echo
+              echo "Meson:"
               /usr/local/bin/meson --version
 
 
@@ -393,11 +398,14 @@ jobs:
               echo "LibreOffice build completed"
               echo "========================================"
             '
+
         displayName: Compile LibreOffice and build Debian package
+
         env:
           LIBREOFFICE_VERSION: $(LIBREOFFICE_VERSION)
           LIBREOFFICE_VERSION_MINOR: $(LIBREOFFICE_VERSION_MINOR)
           PACKAGE_REVISION: $(PACKAGE_REVISION)
+
 
       #
       # Verify at least one Debian package exists.
@@ -437,7 +445,9 @@ jobs:
               echo "ERROR: No LibreOffice Debian package was produced."
               exit 1
           fi
+
         displayName: Verify generated LibreOffice Debian package
+
 
       #
       # Stage package and Debian build metadata.
@@ -483,7 +493,9 @@ jobs:
 
           echo
           cat SHA256SUMS
+
         displayName: Stage LibreOffice Debian package
+
 
       #
       # Publish downloadable Azure Pipeline artifact.
