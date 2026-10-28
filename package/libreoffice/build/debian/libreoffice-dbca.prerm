@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -e
+
+case "${1:-}" in
+    remove|purge)
+        if [ -x /usr/local/bin/python3.15 ]; then
+            /usr/local/bin/python3.15 -m pip uninstall \
+                --yes \
+                unoserver >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+exit 0
