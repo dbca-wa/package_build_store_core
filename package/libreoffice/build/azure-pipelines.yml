@@ -23,76 +23,84 @@ variables:
   PACKAGE_REVISION: 'dbca1'
   DEBIAN_FRONTEND: 'noninteractive'
 
-steps:
-  - checkout: self
-    clean: true
-    fetchDepth: 1
-
-  - bash: |
-      set -euxo pipefail
-
-      sudo apt-get update
-
-      sudo apt-get install --no-install-recommends -y \
-        build-essential \
-        ca-certificates \
-        ccache \
-        curl \
-        debhelper \
-        devscripts \
-        dpkg-dev \
-        fakeroot \
-        git \
-        pkg-config 
-
-      sudo rm -rf /var/lib/apt/lists/*
-    displayName: Install Debian packaging tools
-
-  - bash: |
-      set -euxo pipefail
-
-      cd "$(Build.SourcesDirectory)/package/libreoffice/build"
-
-      chmod 0755 build-package.sh
-      chmod 0755 debian/rules
-      chmod 0755 debian/libreoffice-dbca.postinst
-      chmod 0755 debian/libreoffice-dbca.prerm
-      chmod 0755 packaging/libreoffice-dbca.sh
-      chmod 0755 packaging/soffice-dbca.sh
-      chmod 0644 packaging/libreoffice-dbca-env.sh
-
-      ./build-package.sh
+jobs:
+  - job: BuildLibreOffice
     displayName: Build LibreOffice Debian package
-    env:
-      LIBREOFFICE_VERSION: $(LIBREOFFICE_VERSION)
-      LIBREOFFICE_VERSION_MINOR: $(LIBREOFFICE_VERSION_MINOR)
-      PACKAGE_REVISION: $(PACKAGE_REVISION)
 
-  - bash: |
-      set -euxo pipefail
+    timeoutInMinutes: 360
 
-      echo "Generated Debian packages:"
+    steps:
+      - checkout: self
+        clean: true
+        fetchDepth: 1
 
-      find "$(Build.SourcesDirectory)/package/libreoffice/build/artifacts" \
-        -maxdepth 1 \
-        -type f \
-        -name '*.deb' \
-        -print \
-        -exec dpkg-deb --info {} \;
+      - bash: |
+          set -euxo pipefail
 
-      test -n "$(
-        find "$(Build.SourcesDirectory)/package/libreoffice/build/artifacts" \
-          -maxdepth 1 \
-          -type f \
-          -name '*.deb' \
-          -print \
-          -quit
-      )"
-    displayName: Validate generated Debian package
+          sudo apt-get update
 
-  - task: PublishPipelineArtifact@1
-    displayName: Publish LibreOffice Debian package
-    inputs:
-      targetPath: '$(Build.SourcesDirectory)/package/libreoffice/build/artifacts'
-      artifact: 'libreoffice-dbca-debian-package'
-      publishLocation: 'pipeline'
+          sudo apt-get install --no-install-recommends -y \
+            build-essential \
+            ca-certificates \
+            ccache \
+            curl \
+            debhelper \
+            devscripts \
+            dpkg-dev \
+            fakeroot \
+            git \
+            pkg-config 
+
+          sudo rm -rf /var/lib/apt/lists/*
+        displayName: Install Debian packaging tools
+
+      - bash: |
+          set -euxo pipefail
+
+          cd "$(Build.SourcesDirectory)/package/libreoffice/build"
+
+          chmod 0755 \
+            build-package.sh \
+            debian/rules \
+            debian/libreoffice-dbca.postinst \
+            debian/libreoffice-dbca.prerm \
+            packaging/libreoffice-dbca.sh \
+            packaging/soffice-dbca.sh
+
+          chmod 0644 packaging/libreoffice-dbca-env.sh
+
+          ./build-package.sh
+        displayName: Build LibreOffice Debian package
+        env:
+          LIBREOFFICE_VERSION: $(LIBREOFFICE_VERSION)
+          LIBREOFFICE_VERSION_MINOR: $(LIBREOFFICE_VERSION_MINOR)
+          PACKAGE_REVISION: $(PACKAGE_REVISION)
+
+      - bash: |
+          set -euxo pipefail
+
+          echo "Generated Debian packages:"
+
+          find "$(Build.SourcesDirectory)/package/libreoffice/build/artifacts" \
+            -maxdepth 1 \
+            -type f \
+            -name '*.deb' \
+            -print \
+            -exec dpkg-deb --info {} \;
+
+          test -n "$(
+            find "$(Build.SourcesDirectory)/package/libreoffice/build/artifacts" \
+              -maxdepth 1 \
+              -type f \
+              -name '*.deb' \
+              -print \
+              -quit
+          )"
+        displayName: Validate generated Debian package
+
+      - task: PublishPipelineArtifact@1
+        displayName: Publish LibreOffice Debian package
+        inputs:
+          targetPath: '$(Build.SourcesDirectory)/package/libreoffice/build/artifacts'
+          artifact: 'libreoffice-dbca-debian-package'
+          publishLocation: 'pipeline'
