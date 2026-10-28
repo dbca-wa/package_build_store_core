@@ -1,0 +1,129 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_CFLAGS_MAINT_APPEND = -O2
+export DEB_CXXFLAGS_MAINT_APPEND = -O2
+
+LIBREOFFICE_VERSION ?= 26.8.0
+LIBREOFFICE_VERSION_MINOR ?= 3
+LIBREOFFICE_FULL_VERSION := $(LIBREOFFICE_VERSION).$(LIBREOFFICE_VERSION_MINOR)
+
+SOURCE_DIRECTORY ?= $(CURDIR)/source/libreoffice-$(LIBREOFFICE_FULL_VERSION)
+PACKAGE_ROOT := $(CURDIR)/debian/libreoffice-dbca
+INSTALL_PREFIX := /opt/libreoffice
+
+export PATH := /usr/local/bin:$(PATH)
+export PKG_CONFIG_PATH := /usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig
+export LD_LIBRARY_PATH := /usr/local/lib:/usr/local/lib64
+export PYTHON := /usr/local/bin/python3.15
+export PYTHON_CFLAGS := $(shell /usr/local/bin/python3.15-config --includes)
+export PYTHON_LIBS := $(shell /usr/local/bin/python3.15-config --ldflags --embed)
+export container := docker
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	test -x /usr/local/bin/python3.15
+	test -x /usr/local/bin/python3.15-config
+	test -d "$(SOURCE_DIRECTORY)"
+	cd "$(SOURCE_DIRECTORY)" && \
+		./autogen.sh \
+			--prefix="$(INSTALL_PREFIX)" \
+			--with-vendor="DBCA" \
+			--without-help \
+			--without-myspell-dicts \
+			--disable-online-update \
+			--disable-odk \
+			--disable-postgresql-sdbc \
+			--disable-firebird-sdbc \
+			--disable-report-builder \
+			--disable-scripting-beanshell \
+			--disable-cups \
+			--without-java \
+			--disable-gtk3 \
+			--disable-dbus \
+			--disable-gstreamer-1-0 \
+			--disable-opengl \
+			--disable-sdremote \
+			--disable-avmedia \
+			--without-helppack-integration \
+			--without-junit \
+			--with-lang=en-US \
+			--disable-cve-tests \
+			--disable-pdfium \
+			--disable-skia \
+			--disable-mariadb-sdbc \
+			--disable-ldap \
+			--disable-librelogo \
+			--disable-lpsolve \
+			--disable-coinmp \
+			--without-webdav \
+			--disable-extension-update \
+			--with-templates=no \
+			--disable-scripting-javascript
+
+override_dh_auto_build:
+	$(MAKE) -C "$(SOURCE_DIRECTORY)" -j"$$(nproc)"
+
+override_dh_auto_install:
+	rm -rf "$(PACKAGE_ROOT)"
+	mkdir -p "$(PACKAGE_ROOT)/opt/libreoffice"
+
+	if test -f "$(SOURCE_DIRECTORY)/workdir/Package/Gallery/Files/backgrounds.filelist"; then \
+		cp -p \
+			"$(SOURCE_DIRECTORY)/workdir/Package/Gallery/Files/backgrounds.filelist" \
+			"$(SOURCE_DIRECTORY)/workdir/Package/Gallery/backgrounds.filelist"; \
+	fi
+
+	if test -f "$(SOURCE_DIRECTORY)/workdir/Package/Gallery/Files/sounds.filelist"; then \
+		cp -p \
+			"$(SOURCE_DIRECTORY)/workdir/Package/Gallery/Files/sounds.filelist" \
+			"$(SOURCE_DIRECTORY)/workdir/Package/Gallery/sounds.filelist"; \
+	fi
+
+	$(MAKE) -C "$(SOURCE_DIRECTORY)" \
+		DESTDIR="$(PACKAGE_ROOT)" \
+		install
+
+	mkdir -p "$(PACKAGE_ROOT)/usr/bin"
+	mkdir -p "$(PACKAGE_ROOT)/etc/profile.d"
+	mkdir -p "$(PACKAGE_ROOT)/usr/share/doc/libreoffice-dbca"
+
+	install -m 0755 \
+		"$(CURDIR)/packaging/libreoffice-dbca.sh" \
+		"$(PACKAGE_ROOT)/usr/bin/libreoffice-dbca"
+
+	install -m 0755 \
+		"$(CURDIR)/packaging/soffice-dbca.sh" \
+		"$(PACKAGE_ROOT)/usr/bin/soffice-dbca"
+
+	install -m 0644 \
+		"$(CURDIR)/packaging/libreoffice-dbca-env.sh" \
+		"$(PACKAGE_ROOT)/etc/profile.d/libreoffice-dbca.sh"
+
+	printf '%s\n' \
+		"LibreOffice $(LIBREOFFICE_FULL_VERSION)" \
+		"Built by DBCA for headless DOCX-to-PDF conversion and UNO access." \
+		> "$(PACKAGE_ROOT)/usr/share/doc/libreoffice-dbca/README.DBCA"
+
+override_dh_auto_test:
+	@echo "LibreOffice automated build tests are disabled for this package."
+
+override_dh_auto_clean:
+	if test -d "$(SOURCE_DIRECTORY)"; then \
+		$(MAKE) -C "$(SOURCE_DIRECTORY)" clean || true; \
+	fi
+	rm -rf "$(CURDIR)/debian/libreoffice-dbca"
+	rm -f "$(CURDIR)/debian/files"
+	rm -f "$(CURDIR)/debian"/*.debhelper
+	rm -f "$(CURDIR)/debian"/*.substvars
+
+override_dh_shlibdeps:
+	dh_shlibdeps \
+		-l"$(PACKAGE_ROOT)/opt/libreoffice/program" \
+		-Xlibpython3.15.so
+
+override_dh_strip:
+	dh_strip --no-automatic-dbgsym
