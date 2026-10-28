@@ -1,0 +1,80 @@
+Source: libreoffice-dbca
+Section: editors
+Priority: optional
+Maintainer: DBCA Applications Development and Integration
+Build-Depends:
+ debhelper-compat (= 13),
+ build-essential,
+ autoconf,
+ automake,
+ bison,
+ ccache,
+ curl,
+ flex,
+ gawk,
+ git,
+ libarchive-dev,
+ libboost-dev,
+ libclucene-dev,
+ libcppunit-dev,
+ libcups2-dev,
+ libcurl4-openssl-dev,
+ libepoxy-dev,
+ libexpat1-dev,
+ libfontconfig1-dev,
+ libfreetype6-dev,
+ libglib2.0-dev,
+ libgpgme-dev,
+ libgraphite2-dev,
+ libharfbuzz-dev,
+ libhunspell-dev,
+ libice-dev,
+ libicu-dev,
+ libjpeg-dev,
+ liblcms2-dev,
+ libnss3-dev,
+ libpng-dev,
+ libsm-dev,
+ libssl-dev,
+ libx11-dev,
+ libxext-dev,
+ libxinerama-dev,
+ libxml2-dev,
+ libxslt1-dev,
+ libxt-dev,
+ libzstd-dev,
+ nasm,
+ patch,
+ perl,
+ pkg-config,
+ unzip,
+ xz-utils,
+ zip,
+ zlib1g-dev
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://www.libreoffice.org/
+
+Package: libreoffice-dbca
+Architecture: amd64
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+ ca-certificates,
+ fontconfig,
+ fonts-dejavu-core,
+ libfontconfig1,
+ libfreetype6,
+ libgcc-s1,
+ libglib2.0-0t64,
+ libstdc++6,
+ python3.15-dbca
+Recommends:
+ fonts-liberation
+Description: DBCA headless LibreOffice build
+ Custom DBCA LibreOffice build intended for headless document conversion,
+ UNO and unoserver workloads.
+ .
+ LibreOffice is installed under /opt/libreoffice so that the DBCA-managed
+ build remains isolated from Ubuntu's distribution-managed LibreOffice
+ packages.
