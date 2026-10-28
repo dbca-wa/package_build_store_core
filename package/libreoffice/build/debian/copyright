@@ -1,0 +1,16 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: LibreOffice
+Source: https://www.libreoffice.org/
+
+Files: *
+Copyright: LibreOffice contributors
+License: MPL-2.0
+
+Files: debian/*
+Copyright: 2026 Department of Biodiversity, Conservation and Attractions
+License: MPL-2.0
+
+License: MPL-2.0
+ This package is distributed under the Mozilla Public License version 2.0.
+ The complete license text should be reviewed from the upstream LibreOffice
+ source distribution.
