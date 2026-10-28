@@ -1,0 +1,10 @@
+libreoffice-dbca (26.8.0.3+dbca1) unstable; urgency=medium
+
+  * Initial DBCA packaged build.
+  * Install LibreOffice under /opt/libreoffice.
+  * Configure for headless DOCX-to-PDF conversion.
+  * Retain UNO and PyUNO support for Python 3.15.
+  * Disable desktop, database, Java, multimedia and update components.
+  * Add DBCA wrapper commands and environment configuration.
+
+ -- DBCA Applications Development and Integration <no-reply@dbca.wa.gov.au>  Wed, 28 Oct 2026 21:16:00 +0800
