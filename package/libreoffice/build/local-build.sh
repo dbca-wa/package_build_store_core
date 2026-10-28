@@ -21,5 +21,24 @@ make -j"$(nproc)";
      workdir/Package/Gallery/backgrounds.filelist && \
  cp -p \
      workdir/Package/Gallery/Files/sounds.filelist \
-     workdir/Package/Gallery/sounds.filelist && \  
+     workdir/Package/Gallery/sounds.filelist ;
+mkdir -p workdir/Package/PackageSet
+rm -f workdir/Package/PackageSet/Gallery_sounds.filelist  
+ touch workdir/Package/PackageSet/Gallery_sounds.filelist
+     
 make install;  
+sed -i '/gid_File_Extra_Gallsounds,/d' \
+    scp2/source/ooo/module_ooo.scp
+make -j"$(nproc)"
+make install
+make -j1 scp2.clean
+make -j"$(nproc)" scp2
+rm -rf workdir/ScpTarget/scp2
+rm -rf workdir/ScpPreprocessTarget/scp2
+make -j"$(nproc)"
+
+mkdir -p workdir/Package/Gallery/Files
+touch workdir/Package/Gallery/sounds.filelist
+touch workdir/Package/Gallery/Files/sounds.filelist
+
+make install
