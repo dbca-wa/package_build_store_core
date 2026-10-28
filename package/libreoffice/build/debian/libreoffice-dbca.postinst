@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -e
+
+if command -v fc-cache >/dev/null 2>&1; then
+    fc-cache -f >/dev/null 2>&1 || true
+fi
+
+if [ -x /usr/local/bin/python3.15 ]; then
+    /usr/local/bin/python3.15 -m pip install \
+        --disable-pip-version-check \
+        --no-cache-dir \
+        unoserver || {
+            echo "WARNING: Could not install unoserver using Python 3.15."
+            echo "LibreOffice has still been installed successfully."
+        }
+fi
+
+exit 0
