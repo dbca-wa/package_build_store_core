@@ -87,14 +87,19 @@ echo "Package metadata:"
 dpkg-deb --info "${DEB_FILE}"
 
 TEST_ROOT="${BUILD_ROOT}/package-test"
+
 rm -rf "${TEST_ROOT}"
 mkdir -p "${TEST_ROOT}"
 
 dpkg-deb --extract "${DEB_FILE}" "${TEST_ROOT}"
 
-"${TEST_ROOT}/opt/python/3.15/bin/python3.15" --version
+echo "Testing packaged Python..."
 
-"${TEST_ROOT}/opt/python/3.15/bin/python3.15" -c '
+export LD_LIBRARY_PATH="${TEST_ROOT}/usr/local/lib"
+
+"${TEST_ROOT}/usr/local/bin/python3.15" --version
+
+"${TEST_ROOT}/usr/local/bin/python3.15" -c '
 import bz2
 import ctypes
 import hashlib
@@ -106,11 +111,22 @@ import sys
 import uuid
 import zlib
 
-print(sys.version)
+print("Python:", sys.version)
 print("OpenSSL:", ssl.OPENSSL_VERSION)
 print("SQLite:", sqlite3.sqlite_version)
+print("zlib:", zlib.ZLIB_VERSION)
 print("Python package validation passed")
 '
+
+echo "Checking Python aliases..."
+
+test -L "${TEST_ROOT}/usr/local/bin/python"
+test -L "${TEST_ROOT}/usr/local/bin/python3"
+
+echo "python -> $(readlink "${TEST_ROOT}/usr/local/bin/python")"
+echo "python3 -> $(readlink "${TEST_ROOT}/usr/local/bin/python3")"
+
+echo "Package validation completed successfully."
 
 sha256sum "${DIST_DIRECTORY}"/* > "${DIST_DIRECTORY}/SHA256SUMS"
 
