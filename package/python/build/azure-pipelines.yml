@@ -16,16 +16,13 @@ pr:
 
 variables:
   BUILD_PATH: "package/python/build"
-
   PYTHON_VERSION: "3.15.2"
   PACKAGE_REVISION: "dbca1"
   PACKAGE_NAME: "python3.15-dbca"
   BUILD_IMAGE: "ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python"
 
-
 pool:
   vmImage: ubuntu-latest
-
 
 steps:
 
@@ -35,7 +32,6 @@ steps:
   - checkout: self
     clean: true
     fetchDepth: 1
-
 
   #
   # Display the host build environment.
@@ -57,7 +53,6 @@ steps:
 
     displayName: Display build environment
 
-
   #
   # Pull the DBCA Ubuntu 26.04 Python build image.
   #
@@ -68,26 +63,11 @@ steps:
 
     displayName: Pull Python build image
 
-
   #
   # Build the Python Debian package.
   #
-  # IMPORTANT:
-  #
-  # This intentionally does NOT use the Azure Pipelines
-  # container: job functionality.
-  #
-  # Azure was executing our previous container job as:
-  #
-  #   runner_azpcontainer
-  #
-  # Instead, Docker is invoked directly and the build container
-  # is explicitly started as UID/GID 0.
-  #
-  #
-  # Build the Python Debian package.
-  #
-  # Run Docker directly rather than using an Azure container job.
+  # Docker is invoked directly so that the package build container
+  # can explicitly execute as root.
   #
   - bash: |
       set -euxo pipefail
@@ -203,7 +183,7 @@ steps:
 
           package/python/build/packaging/build-deb.sh \
             "${PYTHON_VERSION}" \
-            "${PACKAGE_REVISION}" 
+            "${PACKAGE_REVISION}"
 
           echo
           echo "========================================"
@@ -222,6 +202,113 @@ steps:
         '
 
     displayName: Compile Python and build Debian package
+
     env:
       PYTHON_VERSION: $(PYTHON_VERSION)
       PACKAGE_REVISION: $(PACKAGE_REVISION)
+
+  #
+  # Verify that at least one Debian package has been produced.
+  #
+  - bash: |
+      set -euxo pipefail
+
+      DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+
+      echo "========================================"
+      echo "Generated build output"
+      echo "========================================"
+
+      ls -lah "${DIST_DIR}"
+
+      echo
+      echo "Debian packages:"
+
+      find "${DIST_DIR}" \
+        -maxdepth 1 \
+        -type f \
+        -name "*.deb" \
+        -print
+
+      DEB_COUNT="$(
+        find "${DIST_DIR}" \
+          -maxdepth 1 \
+          -type f \
+          -name "*.deb" \
+          | wc -l
+      )"
+
+      echo
+      echo "Debian package count: ${DEB_COUNT}"
+
+      if [ "${DEB_COUNT}" -eq 0 ]; then
+          echo "ERROR: No Debian package was produced."
+          exit 1
+      fi
+
+    displayName: Verify generated Debian package
+
+  #
+  # Stage the Debian packages for publication.
+  #
+  - bash: |
+      set -euxo pipefail
+
+      DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+      ARTIFACT_DIR="$(Build.ArtifactStagingDirectory)/python-deb"
+
+      echo "========================================"
+      echo "Stage Pipeline Artifact"
+      echo "========================================"
+
+      rm -rf "${ARTIFACT_DIR}"
+      mkdir -p "${ARTIFACT_DIR}"
+
+      #
+      # Copy the runtime package, debug package and
+      # Debian build metadata.
+      #
+      find "${DIST_DIR}" \
+        -maxdepth 1 \
+        -type f \
+        \( \
+          -name "*.deb" \
+          -o -name "*.buildinfo" \
+          -o -name "*.changes" \
+        \) \
+        -exec cp -v {} "${ARTIFACT_DIR}/" \;
+
+      cd "${ARTIFACT_DIR}"
+
+      #
+      # Produce checksums for all generated Debian packages.
+      #
+      sha256sum ./*.deb > SHA256SUMS
+
+      echo
+      echo "========================================"
+      echo "Artifact contents"
+      echo "========================================"
+
+      ls -lah
+
+      echo
+      echo "========================================"
+      echo "SHA256 checksums"
+      echo "========================================"
+
+      cat SHA256SUMS
+
+    displayName: Stage Python Debian package
+
+  #
+  # Publish the files as a downloadable Azure DevOps
+  # Pipeline Artifact.
+  #
+  - task: PublishPipelineArtifact@1
+    displayName: Publish Python Debian package
+
+    inputs:
+      targetPath: "$(Build.ArtifactStagingDirectory)/python-deb"
+      artifact: "python-3.15-debian-package"
+      publishLocation: "pipeline"
