@@ -1,0 +1,508 @@
+name: LibreOffice Package Build - $(Date:yyyy.MM.dd)$(Rev:.r)-$(Build.BuildId)
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - package/libreoffice/build/**
+
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - package/libreoffice/build/**
+
+variables:
+  BUILD_PATH: "package/libreoffice/build"
+  LIBREOFFICE_VERSION: "26.8.0"
+  LIBREOFFICE_VERSION_MINOR: "3"
+  PACKAGE_REVISION: "dbca1"
+  PACKAGE_NAME: "libreoffice-dbca"
+  BUILD_IMAGE: "ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python"
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: BuildLibreOffice
+    displayName: Build LibreOffice Debian package
+    timeoutInMinutes: 360
+
+    steps:
+
+      #
+      # Checkout repository onto Azure build agent.
+      #
+      - checkout: self
+        clean: true
+        fetchDepth: 1
+
+
+      #
+      # Display Azure host information.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          echo "========================================"
+          echo "Azure build agent"
+          echo "========================================"
+
+          whoami
+          id
+
+          echo
+          echo "Docker:"
+          docker version
+
+          echo
+          echo "Build source directory:"
+          echo "$(Build.SourcesDirectory)"
+
+        displayName: Display build environment
+
+
+      #
+      # Pull DBCA Ubuntu 26.04 / Python 3.15 build image.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          docker pull "$(BUILD_IMAGE)"
+
+        displayName: Pull DBCA Ubuntu 26.04 Python build image
+
+
+      #
+      # Prepare output directory.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+
+          rm -rf "${DIST_DIR}"
+          mkdir -p "${DIST_DIR}"
+
+        displayName: Prepare LibreOffice build directory
+
+
+      #
+      # Build LibreOffice inside DBCA Ubuntu 26.04 / Python 3.15.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          echo "Starting LibreOffice build container:"
+          echo "$(BUILD_IMAGE)"
+
+          docker run --rm \
+            --user 0:0 \
+            --volume "$(Build.SourcesDirectory):/workspace" \
+            --workdir /workspace \
+            --env LIBREOFFICE_VERSION \
+            --env LIBREOFFICE_VERSION_MINOR \
+            --env PACKAGE_REVISION \
+            --env DEBIAN_FRONTEND=noninteractive \
+            "$(BUILD_IMAGE)" \
+            bash -c '
+              set -euxo pipefail
+
+
+              echo
+              echo "========================================"
+              echo "Container identity"
+              echo "========================================"
+
+              whoami
+              id
+
+              if [ "$(id -u)" -ne 0 ]; then
+                  echo "ERROR: Build container is not running as root."
+                  exit 1
+              fi
+
+
+              echo
+              echo "========================================"
+              echo "Operating system"
+              echo "========================================"
+
+              cat /etc/os-release
+
+
+              echo
+              echo "========================================"
+              echo "Python 3.15"
+              echo "========================================"
+
+              /usr/local/bin/python3.15 --version
+              /usr/local/bin/python3.15-config --includes
+              /usr/local/bin/python3.15-config --ldflags --embed
+
+              test -x /usr/local/bin/python3.15
+              test -x /usr/local/bin/python3.15-config
+
+
+              echo
+              echo "========================================"
+              echo "Build parameters"
+              echo "========================================"
+
+              echo "LibreOffice version: ${LIBREOFFICE_VERSION}.${LIBREOFFICE_VERSION_MINOR}"
+              echo "Package revision:    ${PACKAGE_REVISION}"
+
+
+              echo
+              echo "========================================"
+              echo "Install build dependencies"
+              echo "========================================"
+
+              apt-get update
+
+              DEBIAN_FRONTEND=noninteractive apt-get install \
+                --no-install-recommends \
+                -y \
+                autoconf \
+                automake \
+                bison \
+                build-essential \
+                ca-certificates \
+                ccache \
+                curl \
+                debhelper \
+                devscripts \
+                dpkg-dev \
+                fakeroot \
+                file \
+                flex \
+                g++ \
+                gawk \
+                gcc \
+                git \
+                libarchive-dev \
+                libboost-dev \
+                libclucene-dev \
+                libcppunit-dev \
+                libcurl4-openssl-dev \
+                libepoxy-dev \
+                libexpat1-dev \
+                libfontconfig1-dev \
+                libfreetype6-dev \
+                libglib2.0-dev \
+                libgpgme-dev \
+                libgraphite2-dev \
+                libharfbuzz-dev \
+                libhunspell-dev \
+                libice-dev \
+                libicu-dev \
+                libjpeg-dev \
+                liblcms2-dev \
+                libnss3-dev \
+                libpng-dev \
+                libsm-dev \
+                libssl-dev \
+                libx11-dev \
+                libxext-dev \
+                libxinerama-dev \
+                libxml2-dev \
+                libxslt1-dev \
+                libxt-dev \
+                libzstd-dev \
+                nasm \
+                patch \
+                perl \
+                pkg-config \
+                unzip \
+                xz-utils \
+                zip \
+                zlib1g-dev
+
+
+              echo
+              echo "========================================"
+              echo "Build and install latest Ninja"
+              echo "========================================"
+
+              cd /tmp
+
+              rm -rf /tmp/ninja
+
+              git clone \
+                --depth 1 \
+                --branch release \
+                https://github.com/ninja-build/ninja.git
+
+              cd ninja
+
+              /usr/local/bin/python3.15 configure.py --bootstrap
+
+              install -m 0755 ninja /usr/local/bin/ninja
+
+              /usr/local/bin/ninja --version
+
+              cd /
+
+              rm -rf /tmp/ninja
+
+
+              echo
+              echo "========================================"
+              echo "Download and install latest Meson"
+              echo "========================================"
+
+              export MESON_VERSION="$(
+                curl -fsSL \
+                  https://api.github.com/repos/mesonbuild/meson/releases/latest \
+                  | sed -n '"'"'s/.*"tag_name": *"\([^"]*\)".*/\1/p'"'"'
+              )"
+
+              if [ -z "${MESON_VERSION}" ]; then
+                  echo "ERROR: Unable to determine latest Meson version."
+                  exit 1
+              fi
+
+              echo "Building Meson ${MESON_VERSION}"
+
+              cd /tmp
+
+              rm -rf /opt/meson
+              rm -f /tmp/meson.tar.gz
+
+              curl -fsSL \
+                "https://github.com/mesonbuild/meson/releases/download/${MESON_VERSION}/meson-${MESON_VERSION}.tar.gz" \
+                -o meson.tar.gz
+
+              mkdir /opt/meson
+
+              tar \
+                -xzf meson.tar.gz \
+                --strip-components=1 \
+                -C /opt/meson
+
+              ln -s \
+                /opt/meson/meson.py \
+                /usr/local/bin/meson
+
+              chmod +x /opt/meson/meson.py
+
+              /usr/local/bin/meson --version
+
+              rm -f /tmp/meson.tar.gz
+
+
+              echo
+              echo "========================================"
+              echo "Verify Ninja and Meson"
+              echo "========================================"
+
+              export PATH="/usr/local/bin:${PATH}"
+
+              command -v ninja
+              command -v meson
+
+              /usr/local/bin/ninja --version
+              /usr/local/bin/meson --version
+
+              test -x /usr/local/bin/ninja
+              test -x /usr/local/bin/meson
+
+
+              echo
+              echo "========================================"
+              echo "Return to repository workspace"
+              echo "========================================"
+
+              cd /workspace
+              pwd
+
+
+              echo
+              echo "========================================"
+              echo "Set packaging permissions"
+              echo "========================================"
+
+              chmod 0755 \
+                package/libreoffice/build/build-package.sh \
+                package/libreoffice/build/debian/rules \
+                package/libreoffice/build/debian/libreoffice-dbca.postinst \
+                package/libreoffice/build/debian/libreoffice-dbca.prerm \
+                package/libreoffice/build/packaging/libreoffice-dbca.sh \
+                package/libreoffice/build/packaging/soffice-dbca.sh
+
+              chmod 0644 \
+                package/libreoffice/build/packaging/libreoffice-dbca-env.sh
+
+
+              echo
+              echo "========================================"
+              echo "Packaging files"
+              echo "========================================"
+
+              ls -la package/libreoffice/build
+              ls -la package/libreoffice/build/debian
+              ls -la package/libreoffice/build/packaging
+
+
+              echo
+              echo "========================================"
+              echo "Verify all build tools"
+              echo "========================================"
+
+              gcc --version
+              g++ --version
+              make --version
+              dpkg-buildpackage --version
+              dpkg-deb --version
+
+              echo
+              echo "Python:"
+              /usr/local/bin/python3.15 --version
+
+              echo
+              echo "Ninja:"
+              /usr/local/bin/ninja --version
+
+              echo
+              echo "Meson:"
+              /usr/local/bin/meson --version
+
+
+              echo
+              echo "========================================"
+              echo "Build LibreOffice Debian package"
+              echo "========================================"
+
+              cd /workspace/package/libreoffice/build
+
+              ./build-package.sh
+
+
+              echo
+              echo "========================================"
+              echo "Generated files"
+              echo "========================================"
+
+              find dist \
+                -maxdepth 1 \
+                -type f \
+                -exec ls -lh {} \;
+
+
+              echo
+              echo "========================================"
+              echo "LibreOffice build completed"
+              echo "========================================"
+            '
+
+        displayName: Compile LibreOffice and build Debian package
+
+        env:
+          LIBREOFFICE_VERSION: $(LIBREOFFICE_VERSION)
+          LIBREOFFICE_VERSION_MINOR: $(LIBREOFFICE_VERSION_MINOR)
+          PACKAGE_REVISION: $(PACKAGE_REVISION)
+
+
+      #
+      # Verify at least one Debian package exists.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+
+          echo "========================================"
+          echo "Generated build output"
+          echo "========================================"
+
+          ls -lah "${DIST_DIR}"
+
+          echo
+          echo "Debian packages:"
+
+          find "${DIST_DIR}" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.deb" \
+            -print
+
+          DEB_COUNT="$(
+            find "${DIST_DIR}" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.deb" \
+              | wc -l
+          )"
+
+          echo
+          echo "Debian package count: ${DEB_COUNT}"
+
+          if [ "${DEB_COUNT}" -eq 0 ]; then
+              echo "ERROR: No LibreOffice Debian package was produced."
+              exit 1
+          fi
+
+        displayName: Verify generated LibreOffice Debian package
+
+
+      #
+      # Stage package and Debian build metadata.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+          ARTIFACT_DIR="$(Build.ArtifactStagingDirectory)/libreoffice-deb"
+
+          echo "========================================"
+          echo "Stage Pipeline Artifact"
+          echo "========================================"
+
+          rm -rf "${ARTIFACT_DIR}"
+          mkdir -p "${ARTIFACT_DIR}"
+
+          find "${DIST_DIR}" \
+            -maxdepth 1 \
+            -type f \
+            \( \
+              -name "*.deb" \
+              -o -name "*.buildinfo" \
+              -o -name "*.changes" \
+            \) \
+            -exec cp -v {} "${ARTIFACT_DIR}/" \;
+
+          cd "${ARTIFACT_DIR}"
+
+          echo
+          echo "========================================"
+          echo "Create SHA256 checksums"
+          echo "========================================"
+
+          sha256sum ./*.deb > SHA256SUMS
+
+          echo
+          echo "========================================"
+          echo "Artifact contents"
+          echo "========================================"
+
+          ls -lah
+
+          echo
+          cat SHA256SUMS
+
+        displayName: Stage LibreOffice Debian package
+
+
+      #
+      # Publish downloadable Azure Pipeline artifact.
+      #
+      - task: PublishPipelineArtifact@1
+        displayName: Publish LibreOffice Debian package
+        inputs:
+          targetPath: "$(Build.ArtifactStagingDirectory)/libreoffice-deb"
+          artifact: "libreoffice-debian-package"
+          publishLocation: "pipeline"
