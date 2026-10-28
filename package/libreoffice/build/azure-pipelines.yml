@@ -1,3 +1,5 @@
+name: LibreOffice Package Build - $(Date:yyyy.MM.dd)$(Rev:.r)-$(Build.BuildId)
+
 trigger:
   branches:
     include:
@@ -14,14 +16,19 @@ pr:
     include:
       - package/libreoffice/build/**
 
+variables:
+  BUILD_PATH: "package/libreoffice/build"
+  LIBREOFFICE_VERSION: "26.8.0"
+  LIBREOFFICE_VERSION_MINOR: "3"
+  PACKAGE_REVISION: "dbca1"
+  PACKAGE_NAME: "libreoffice-dbca"
+
+  # Same DBCA Ubuntu 26.04 / Python 3.15 image used by
+  # the Python package pipeline.
+  BUILD_IMAGE: "ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python"
+
 pool:
   vmImage: ubuntu-latest
-
-variables:
-  LIBREOFFICE_VERSION: '26.8.0'
-  LIBREOFFICE_VERSION_MINOR: '3'
-  PACKAGE_REVISION: 'dbca1'
-  DEBIAN_FRONTEND: 'noninteractive'
 
 jobs:
   - job: BuildLibreOffice
@@ -30,77 +37,355 @@ jobs:
     timeoutInMinutes: 360
 
     steps:
+
+      #
+      # Checkout repository onto Azure build agent.
+      #
       - checkout: self
         clean: true
         fetchDepth: 1
 
+      #
+      # Display Azure host information.
+      #
       - bash: |
           set -euxo pipefail
 
-          sudo apt-get update
+          echo "========================================"
+          echo "Azure build agent"
+          echo "========================================"
 
-          sudo apt-get install --no-install-recommends -y \
-            build-essential \
-            ca-certificates \
-            ccache \
-            curl \
-            debhelper \
-            devscripts \
-            dpkg-dev \
-            fakeroot \
-            git \
-            pkg-config 
+          whoami
+          id
 
-          sudo rm -rf /var/lib/apt/lists/*
-        displayName: Install Debian packaging tools
+          echo
+          echo "Docker:"
+          docker version
 
+          echo
+          echo "Build source directory:"
+          echo "$(Build.SourcesDirectory)"
+        displayName: Display build environment
+
+      #
+      # Pull the same DBCA Ubuntu 26.04 Python image
+      # used by package/python/build.
+      #
       - bash: |
           set -euxo pipefail
 
-          cd "$(Build.SourcesDirectory)/package/libreoffice/build"
+          docker pull "$(BUILD_IMAGE)"
+        displayName: Pull DBCA Ubuntu 26.04 Python build image
 
-          chmod 0755 \
-            build-package.sh \
-            debian/rules \
-            debian/libreoffice-dbca.postinst \
-            debian/libreoffice-dbca.prerm \
-            packaging/libreoffice-dbca.sh \
-            packaging/soffice-dbca.sh
+      #
+      # Prepare output directory on the Azure host.
+      #
+      - bash: |
+          set -euxo pipefail
 
-          chmod 0644 packaging/libreoffice-dbca-env.sh
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
 
-          ./build-package.sh
-        displayName: Build LibreOffice Debian package
+          rm -rf "${DIST_DIR}"
+          mkdir -p "${DIST_DIR}"
+        displayName: Prepare LibreOffice build directory
+
+      #
+      # Run the complete LibreOffice build inside the
+      # DBCA Ubuntu 26.04 / Python 3.15 image.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          echo "Starting LibreOffice build container:"
+          echo "$(BUILD_IMAGE)"
+
+          docker run --rm \
+            --user 0:0 \
+            --volume "$(Build.SourcesDirectory):/workspace" \
+            --workdir /workspace \
+            --env LIBREOFFICE_VERSION \
+            --env LIBREOFFICE_VERSION_MINOR \
+            --env PACKAGE_REVISION \
+            --env DEBIAN_FRONTEND=noninteractive \
+            "$(BUILD_IMAGE)" \
+            bash -c '
+              set -euxo pipefail
+
+              echo "========================================"
+              echo "Container identity"
+              echo "========================================"
+
+              whoami
+              id
+
+              if [ "$(id -u)" -ne 0 ]; then
+                  echo "ERROR: Build container is not running as root."
+                  exit 1
+              fi
+
+
+              echo
+              echo "========================================"
+              echo "Operating system"
+              echo "========================================"
+
+              cat /etc/os-release
+
+
+              echo
+              echo "========================================"
+              echo "Python 3.15"
+              echo "========================================"
+
+              /usr/local/bin/python3.15 --version
+
+              /usr/local/bin/python3.15-config --includes
+              /usr/local/bin/python3.15-config --ldflags --embed
+
+              test -x /usr/local/bin/python3.15
+              test -x /usr/local/bin/python3.15-config
+
+
+              echo
+              echo "========================================"
+              echo "Build parameters"
+              echo "========================================"
+
+              echo "LibreOffice version: ${LIBREOFFICE_VERSION}.${LIBREOFFICE_VERSION_MINOR}"
+              echo "Package revision:    ${PACKAGE_REVISION}"
+
+
+              echo
+              echo "========================================"
+              echo "Install build dependencies"
+              echo "========================================"
+
+              apt-get update
+
+              DEBIAN_FRONTEND=noninteractive apt-get install \
+                --no-install-recommends \
+                -y \
+                autoconf \
+                automake \
+                bison \
+                build-essential \
+                ca-certificates \
+                ccache \
+                curl \
+                debhelper \
+                devscripts \
+                dpkg-dev \
+                fakeroot \
+                file \
+                flex \
+                g++ \
+                gawk \
+                gcc \
+                git \
+                libarchive-dev \
+                libboost-dev \
+                libclucene-dev \
+                libcppunit-dev \
+                libcurl4-openssl-dev \
+                libepoxy-dev \
+                libexpat1-dev \
+                libfontconfig1-dev \
+                libfreetype6-dev \
+                libglib2.0-dev \
+                libgpgme-dev \
+                libgraphite2-dev \
+                libharfbuzz-dev \
+                libhunspell-dev \
+                libice-dev \
+                libicu-dev \
+                libjpeg-dev \
+                liblcms2-dev \
+                libnss3-dev \
+                libpng-dev \
+                libsm-dev \
+                libssl-dev \
+                libx11-dev \
+                libxext-dev \
+                libxinerama-dev \
+                libxml2-dev \
+                libxslt1-dev \
+                libxt-dev \
+                libzstd-dev \
+                nasm \
+                patch \
+                perl \
+                pkg-config \
+                unzip \
+                xz-utils \
+                zip \
+                zlib1g-dev
+
+
+              echo
+              echo "========================================"
+              echo "Set packaging permissions"
+              echo "========================================"
+
+              chmod 0755 \
+                package/libreoffice/build/build-package.sh \
+                package/libreoffice/build/debian/rules \
+                package/libreoffice/build/debian/libreoffice-dbca.postinst \
+                package/libreoffice/build/debian/libreoffice-dbca.prerm \
+                package/libreoffice/build/packaging/libreoffice-dbca.sh \
+                package/libreoffice/build/packaging/soffice-dbca.sh
+
+              chmod 0644 \
+                package/libreoffice/build/packaging/libreoffice-dbca-env.sh
+
+
+              echo
+              echo "========================================"
+              echo "Packaging files"
+              echo "========================================"
+
+              ls -la package/libreoffice/build
+              ls -la package/libreoffice/build/debian
+              ls -la package/libreoffice/build/packaging
+
+
+              echo
+              echo "========================================"
+              echo "Verify build tools"
+              echo "========================================"
+
+              gcc --version
+              g++ --version
+              make --version
+              dpkg-buildpackage --version
+              dpkg-deb --version
+
+              /usr/local/bin/python3.15 --version
+
+
+              echo
+              echo "========================================"
+              echo "Build LibreOffice Debian package"
+              echo "========================================"
+
+              cd package/libreoffice/build
+
+              ./build-package.sh
+
+
+              echo
+              echo "========================================"
+              echo "Generated files"
+              echo "========================================"
+
+              find dist \
+                -maxdepth 1 \
+                -type f \
+                -exec ls -lh {} \;
+
+
+              echo
+              echo "========================================"
+              echo "LibreOffice build completed"
+              echo "========================================"
+            '
+        displayName: Compile LibreOffice and build Debian package
         env:
           LIBREOFFICE_VERSION: $(LIBREOFFICE_VERSION)
           LIBREOFFICE_VERSION_MINOR: $(LIBREOFFICE_VERSION_MINOR)
           PACKAGE_REVISION: $(PACKAGE_REVISION)
 
+      #
+      # Verify at least one Debian package exists.
+      #
       - bash: |
           set -euxo pipefail
 
-          echo "Generated Debian packages:"
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
 
-          find "$(Build.SourcesDirectory)/package/libreoffice/build/artifacts" \
+          echo "========================================"
+          echo "Generated build output"
+          echo "========================================"
+
+          ls -lah "${DIST_DIR}"
+
+          echo
+          echo "Debian packages:"
+
+          find "${DIST_DIR}" \
             -maxdepth 1 \
             -type f \
-            -name '*.deb' \
-            -print \
-            -exec dpkg-deb --info {} \;
+            -name "*.deb" \
+            -print
 
-          test -n "$(
-            find "$(Build.SourcesDirectory)/package/libreoffice/build/artifacts" \
+          DEB_COUNT="$(
+            find "${DIST_DIR}" \
               -maxdepth 1 \
               -type f \
-              -name '*.deb' \
-              -print \
-              -quit
+              -name "*.deb" \
+              | wc -l
           )"
-        displayName: Validate generated Debian package
 
+          echo
+          echo "Debian package count: ${DEB_COUNT}"
+
+          if [ "${DEB_COUNT}" -eq 0 ]; then
+              echo "ERROR: No LibreOffice Debian package was produced."
+              exit 1
+          fi
+        displayName: Verify generated LibreOffice Debian package
+
+      #
+      # Stage package and Debian build metadata.
+      #
+      - bash: |
+          set -euxo pipefail
+
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+          ARTIFACT_DIR="$(Build.ArtifactStagingDirectory)/libreoffice-deb"
+
+          echo "========================================"
+          echo "Stage Pipeline Artifact"
+          echo "========================================"
+
+          rm -rf "${ARTIFACT_DIR}"
+          mkdir -p "${ARTIFACT_DIR}"
+
+          find "${DIST_DIR}" \
+            -maxdepth 1 \
+            -type f \
+            \( \
+              -name "*.deb" \
+              -o -name "*.buildinfo" \
+              -o -name "*.changes" \
+            \) \
+            -exec cp -v {} "${ARTIFACT_DIR}/" \;
+
+          cd "${ARTIFACT_DIR}"
+
+          echo
+          echo "========================================"
+          echo "Create SHA256 checksums"
+          echo "========================================"
+
+          sha256sum ./*.deb > SHA256SUMS
+
+          echo
+          echo "========================================"
+          echo "Artifact contents"
+          echo "========================================"
+
+          ls -lah
+
+          echo
+          cat SHA256SUMS
+        displayName: Stage LibreOffice Debian package
+
+      #
+      # Publish downloadable Azure Pipeline artifact.
+      #
       - task: PublishPipelineArtifact@1
         displayName: Publish LibreOffice Debian package
         inputs:
-          targetPath: '$(Build.SourcesDirectory)/package/libreoffice/build/artifacts'
-          artifact: 'libreoffice-dbca-debian-package'
-          publishLocation: 'pipeline'
+          targetPath: "$(Build.ArtifactStagingDirectory)/libreoffice-deb"
+          artifact: "libreoffice-debian-package"
+          publishLocation: "pipeline"
