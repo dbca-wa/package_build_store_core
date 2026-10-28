@@ -1,3 +1,5 @@
+name: Python Package Build - $(Date:yyyy.MM.dd)$(Rev:.r)-$(Build.BuildId)
+
 trigger:
   branches:
     include:
