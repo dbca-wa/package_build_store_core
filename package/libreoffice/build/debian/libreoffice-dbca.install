@@ -1,0 +1,5 @@
+opt/libreoffice
+usr/bin/libreoffice-dbca
+usr/bin/soffice-dbca
+etc/profile.d/libreoffice-dbca.sh
+usr/share/doc/libreoffice-dbca
