@@ -21,296 +21,357 @@ variables:
   PYTHON_VERSION: "3.15.2"
   PACKAGE_REVISION: "dbca1"
   PACKAGE_NAME: "python3.15-dbca"
-  BUILD_IMAGE: "ghcr.io/dbca-wa/docker-apps-dev:ubuntu_2604_base_python"
 
-pool:
-  vmImage: ubuntu-latest
+  # This must be the lower-level Ubuntu 26.04 image, not the final Python
+  # image created from the packages produced by this pipeline. The tag must
+  # contain both linux/amd64 and linux/arm64 manifests.
+  BUILD_IMAGE: "ghcr.io/dbca-wa/docker-apps-dev:ubuntu2604_base_latest"
 
-steps:
+jobs:
+  - job: BuildPythonPackages
+    displayName: Build Python 3.15 Debian packages
+    timeoutInMinutes: 360
 
-  #
-  # Checkout repository onto the Azure build agent.
-  #
-  - checkout: self
-    clean: true
-    fetchDepth: 1
+    pool:
+      vmImage: ubuntu-latest
 
-  #
-  # Display the host build environment.
-  #
-  - bash: |
-      set -euxo pipefail
+    strategy:
+      matrix:
+        amd64:
+          TARGET_ARCH: "amd64"
+          DOCKER_PLATFORM: "linux/amd64"
+          EXPECTED_UNAME_ARCH: "x86_64"
+        arm64:
+          TARGET_ARCH: "arm64"
+          DOCKER_PLATFORM: "linux/arm64"
+          EXPECTED_UNAME_ARCH: "aarch64"
 
-      echo "Azure build agent:"
-      whoami
-      id
+    steps:
+      - checkout: self
+        clean: true
+        fetchDepth: 1
 
-      echo
-      echo "Docker:"
-      docker version
-
-      echo
-      echo "Build source directory:"
-      echo "$(Build.SourcesDirectory)"
-
-    displayName: Display build environment
-
-  #
-  # Pull the DBCA Ubuntu 26.04 Python build image.
-  #
-  - bash: |
-      set -euxo pipefail
-
-      docker pull "$(BUILD_IMAGE)"
-
-    displayName: Pull Python build image
-
-  #
-  # Build the Python Debian package.
-  #
-  # Docker is invoked directly so that the package build container
-  # can explicitly execute as root.
-  #
-  - bash: |
-      set -euxo pipefail
-
-      rm -rf "$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
-      mkdir -p "$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
-
-      echo "Starting build container:"
-      echo "$(BUILD_IMAGE)"
-
-      docker run --rm \
-        --user 0:0 \
-        --volume "$(Build.SourcesDirectory):/workspace" \
-        --workdir /workspace \
-        --env PYTHON_VERSION \
-        --env PACKAGE_REVISION \
-        "$(BUILD_IMAGE)" \
-        bash -c '
+      - bash: |
           set -euxo pipefail
 
-          echo "========================================"
-          echo "Container identity"
-          echo "========================================"
-
+          echo "Azure build agent:"
           whoami
           id
+          echo
 
-          if [ "$(id -u)" -ne 0 ]; then
-              echo "ERROR: Build container is not running as root."
+          echo "Docker:"
+          docker version
+          echo
+
+          echo "Build source directory:"
+          echo "$(Build.SourcesDirectory)"
+          echo
+
+          echo "Target Debian architecture: $(TARGET_ARCH)"
+          echo "Target Docker platform:      $(DOCKER_PLATFORM)"
+        displayName: Display build environment
+
+      # Register QEMU interpreters on the AMD64 Microsoft-hosted agent so it
+      # can execute ARM64 containers. Installing both architectures keeps the
+      # matrix jobs identical and avoids architecture-specific YAML branches.
+      - bash: |
+          set -euxo pipefail
+
+          docker run --privileged --rm \
+            tonistiigi/binfmt:latest \
+            --install amd64,arm64
+        displayName: Register AMD64 and ARM64 emulation
+
+      # Pull the correct architecture from the multi-platform base-image tag.
+      - bash: |
+          set -euxo pipefail
+
+          docker pull \
+            --platform "$(DOCKER_PLATFORM)" \
+            "$(BUILD_IMAGE)"
+        displayName: Pull Ubuntu 26.04 build image
+
+      # Fail early if the selected image is not actually running with the
+      # architecture expected by this matrix job.
+      - bash: |
+          set -euxo pipefail
+
+          docker run --rm \
+            --platform "$(DOCKER_PLATFORM)" \
+            "$(BUILD_IMAGE)" \
+            bash -c '
+              set -euxo pipefail
+
+              echo "uname architecture:"
+              uname -m
+
+              echo "Debian architecture:"
+              dpkg --print-architecture
+
+              test "$(uname -m)" = "$(EXPECTED_UNAME_ARCH)"
+              test "$(dpkg --print-architecture)" = "$(TARGET_ARCH)"
+            '
+        displayName: Verify target container architecture
+
+      # Build CPython and package it inside a container of the target
+      # architecture. This is a native architecture build under QEMU, not a
+      # dpkg foreign-architecture or CPython cross-compilation build.
+      - bash: |
+          set -euxo pipefail
+
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+
+          rm -rf "${DIST_DIR}"
+          mkdir -p "${DIST_DIR}"
+
+          echo "Starting build container:"
+          echo "  Image:    $(BUILD_IMAGE)"
+          echo "  Platform: $(DOCKER_PLATFORM)"
+          echo "  Debian:   $(TARGET_ARCH)"
+
+          docker run --rm \
+            --platform "$(DOCKER_PLATFORM)" \
+            --user 0:0 \
+            --volume "$(Build.SourcesDirectory):/workspace" \
+            --workdir /workspace \
+            --env PYTHON_VERSION \
+            --env PACKAGE_REVISION \
+            --env TARGET_ARCH \
+            --env EXPECTED_UNAME_ARCH \
+            "$(BUILD_IMAGE)" \
+            bash -c '
+              set -euxo pipefail
+
+              echo "========================================"
+              echo "Container identity"
+              echo "========================================"
+              whoami
+              id
+
+              if [ "$(id -u)" -ne 0 ]; then
+                  echo "ERROR: Build container is not running as root."
+                  exit 1
+              fi
+
+              echo
+              echo "========================================"
+              echo "Build parameters"
+              echo "========================================"
+              echo "Python version:       ${PYTHON_VERSION}"
+              echo "Package revision:     ${PACKAGE_REVISION}"
+              echo "Target architecture:  ${TARGET_ARCH}"
+
+              echo
+              echo "========================================"
+              echo "Operating system and architecture"
+              echo "========================================"
+              cat /etc/os-release
+              uname -m
+              dpkg --print-architecture
+
+              if [ "$(uname -m)" != "${EXPECTED_UNAME_ARCH}" ]; then
+                  echo "ERROR: uname architecture does not match ${EXPECTED_UNAME_ARCH}."
+                  exit 1
+              fi
+
+              if [ "$(dpkg --print-architecture)" != "${TARGET_ARCH}" ]; then
+                  echo "ERROR: Debian architecture does not match ${TARGET_ARCH}."
+                  exit 1
+              fi
+
+              echo
+              echo "========================================"
+              echo "Install Debian build dependencies"
+              echo "========================================"
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y \
+                build-essential \
+                ca-certificates \
+                curl \
+                debhelper \
+                devscripts \
+                dpkg-dev \
+                fakeroot \
+                file \
+                gcc \
+                g++ \
+                libbz2-dev \
+                libdb-dev \
+                libexpat1-dev \
+                libffi-dev \
+                libgdbm-dev \
+                liblzma-dev \
+                libncurses-dev \
+                libreadline-dev \
+                libsqlite3-dev \
+                libssl-dev \
+                libtirpc-dev \
+                libuuid1 \
+                pkg-config \
+                tk-dev \
+                uuid-dev \
+                xz-utils \
+                zlib1g-dev
+
+              echo
+              echo "========================================"
+              echo "Set packaging permissions"
+              echo "========================================"
+              chmod 0755 \
+                package/python/build/packaging/build-deb.sh \
+                package/python/build/packaging/debian/rules \
+                package/python/build/packaging/debian/postinst \
+                package/python/build/packaging/debian/postrm
+
+              ls -la package/python/build/packaging
+              ls -la package/python/build/packaging/debian
+
+              echo
+              echo "========================================"
+              echo "Verify build tools"
+              echo "========================================"
+              gcc --version
+              g++ --version
+              gcc -dumpmachine
+              make --version
+              dpkg-buildpackage --version
+              dpkg-deb --version
+
+              case "$(gcc -dumpmachine)" in
+                x86_64-linux-gnu)
+                  test "${TARGET_ARCH}" = "amd64"
+                  ;;
+                aarch64-linux-gnu)
+                  test "${TARGET_ARCH}" = "arm64"
+                  ;;
+                *)
+                  echo "ERROR: Unexpected compiler target: $(gcc -dumpmachine)"
+                  exit 1
+                  ;;
+              esac
+
+              echo
+              echo "========================================"
+              echo "Build Python Debian package"
+              echo "========================================"
+              package/python/build/packaging/build-deb.sh \
+                "${PYTHON_VERSION}" \
+                "${PACKAGE_REVISION}"
+
+              echo
+              echo "========================================"
+              echo "Generated files"
+              echo "========================================"
+              find package/python/build/dist \
+                -maxdepth 1 \
+                -type f \
+                -exec ls -lh {} \;
+
+              echo
+              echo "========================================"
+              echo "Build completed"
+              echo "========================================"
+            '
+        displayName: Compile Python and build $(TARGET_ARCH) Debian package
+        env:
+          PYTHON_VERSION: $(PYTHON_VERSION)
+          PACKAGE_REVISION: $(PACKAGE_REVISION)
+          TARGET_ARCH: $(TARGET_ARCH)
+          EXPECTED_UNAME_ARCH: $(EXPECTED_UNAME_ARCH)
+
+      - bash: |
+          set -euxo pipefail
+
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+
+          echo "========================================"
+          echo "Generated build output"
+          echo "========================================"
+          ls -lah "${DIST_DIR}"
+
+          echo
+          echo "Debian packages:"
+          find "${DIST_DIR}" \
+            -maxdepth 1 \
+            -type f \
+            -name "*.deb" \
+            -print
+
+          DEB_COUNT="$(
+            find "${DIST_DIR}" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.deb" \
+              | wc -l
+          )"
+
+          echo
+          echo "Debian package count: ${DEB_COUNT}"
+
+          if [ "${DEB_COUNT}" -eq 0 ]; then
+              echo "ERROR: No Debian package was produced."
               exit 1
           fi
 
-          echo
-          echo "========================================"
-          echo "Build parameters"
-          echo "========================================"
+          while IFS= read -r deb_file; do
+              package_arch="$(dpkg-deb -f "${deb_file}" Architecture)"
+              echo "$(basename "${deb_file}"): ${package_arch}"
 
-          echo "Python version: ${PYTHON_VERSION}"
-          echo "Package revision: ${PACKAGE_REVISION}"
+              if [ "${package_arch}" != "$(TARGET_ARCH)" ]; then
+                  echo "ERROR: Package architecture ${package_arch} does not match $(TARGET_ARCH)."
+                  exit 1
+              fi
+          done < <(
+            find "${DIST_DIR}" \
+              -maxdepth 1 \
+              -type f \
+              -name "*.deb" \
+              -print
+          )
+        displayName: Verify generated $(TARGET_ARCH) Debian package
 
-          echo
+      - bash: |
+          set -euxo pipefail
+
+          DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
+          ARTIFACT_DIR="$(Build.ArtifactStagingDirectory)/python-deb-$(TARGET_ARCH)"
+
           echo "========================================"
-          echo "Operating system"
-          echo "========================================"
-
-          cat /etc/os-release
-
-          echo
-          echo "========================================"
-          echo "Install Debian build dependencies"
-          echo "========================================"
-
-          apt-get update
-
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            build-essential \
-            ca-certificates \
-            curl \
-            debhelper \
-            devscripts \
-            dpkg-dev \
-            fakeroot \
-            file \
-            gcc \
-            g++ \
-            libbz2-dev \
-            libdb-dev \
-            libexpat1-dev \
-            libffi-dev \
-            libgdbm-dev \
-            liblzma-dev \
-            libncurses-dev \
-            libreadline-dev \
-            libsqlite3-dev \
-            libssl-dev \
-            libtirpc-dev \
-            libuuid1 \
-            pkg-config \
-            tk-dev \
-            uuid-dev \
-            xz-utils \
-            zlib1g-dev
-
-          echo
-          echo "========================================"
-          echo "Set packaging permissions"
+          echo "Stage Pipeline Artifact"
           echo "========================================"
 
-          chmod 0755 \
-            package/python/build/packaging/build-deb.sh \
-            package/python/build/packaging/debian/rules \
-            package/python/build/packaging/debian/postinst \
-            package/python/build/packaging/debian/postrm
+          rm -rf "${ARTIFACT_DIR}"
+          mkdir -p "${ARTIFACT_DIR}"
 
-          ls -la package/python/build/packaging
-          ls -la package/python/build/packaging/debian
-
-          echo
-          echo "========================================"
-          echo "Verify build tools"
-          echo "========================================"
-
-          gcc --version
-          g++ --version
-          make --version
-          dpkg-buildpackage --version
-          dpkg-deb --version
-
-          echo
-          echo "========================================"
-          echo "Build Python Debian package"
-          echo "========================================"
-
-          package/python/build/packaging/build-deb.sh \
-            "${PYTHON_VERSION}" \
-            "${PACKAGE_REVISION}"
-
-          echo
-          echo "========================================"
-          echo "Generated files"
-          echo "========================================"
-
-          find package/python/build/dist \
+          find "${DIST_DIR}" \
             -maxdepth 1 \
             -type f \
-            -exec ls -lh {} \;
+            \( \
+              -name "*.deb" \
+              -o -name "*.buildinfo" \
+              -o -name "*.changes" \
+            \) \
+            -exec cp -v {} "${ARTIFACT_DIR}/" \;
+
+          cd "${ARTIFACT_DIR}"
+          sha256sum ./*.deb > SHA256SUMS
 
           echo
           echo "========================================"
-          echo "Build completed"
+          echo "Artifact contents"
           echo "========================================"
-        '
+          ls -lah
 
-    displayName: Compile Python and build Debian package
+          echo
+          echo "========================================"
+          echo "SHA256 checksums"
+          echo "========================================"
+          cat SHA256SUMS
+        displayName: Stage $(TARGET_ARCH) Python Debian package
 
-    env:
-      PYTHON_VERSION: $(PYTHON_VERSION)
-      PACKAGE_REVISION: $(PACKAGE_REVISION)
-
-  #
-  # Verify that at least one Debian package has been produced.
-  #
-  - bash: |
-      set -euxo pipefail
-
-      DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
-
-      echo "========================================"
-      echo "Generated build output"
-      echo "========================================"
-
-      ls -lah "${DIST_DIR}"
-
-      echo
-      echo "Debian packages:"
-
-      find "${DIST_DIR}" \
-        -maxdepth 1 \
-        -type f \
-        -name "*.deb" \
-        -print
-
-      DEB_COUNT="$(
-        find "${DIST_DIR}" \
-          -maxdepth 1 \
-          -type f \
-          -name "*.deb" \
-          | wc -l
-      )"
-
-      echo
-      echo "Debian package count: ${DEB_COUNT}"
-
-      if [ "${DEB_COUNT}" -eq 0 ]; then
-          echo "ERROR: No Debian package was produced."
-          exit 1
-      fi
-
-    displayName: Verify generated Debian package
-
-  #
-  # Stage the Debian packages for publication.
-  #
-  - bash: |
-      set -euxo pipefail
-
-      DIST_DIR="$(Build.SourcesDirectory)/$(BUILD_PATH)/dist"
-      ARTIFACT_DIR="$(Build.ArtifactStagingDirectory)/python-deb"
-
-      echo "========================================"
-      echo "Stage Pipeline Artifact"
-      echo "========================================"
-
-      rm -rf "${ARTIFACT_DIR}"
-      mkdir -p "${ARTIFACT_DIR}"
-
-      #
-      # Copy the runtime package, debug package and
-      # Debian build metadata.
-      #
-      find "${DIST_DIR}" \
-        -maxdepth 1 \
-        -type f \
-        \( \
-          -name "*.deb" \
-          -o -name "*.buildinfo" \
-          -o -name "*.changes" \
-        \) \
-        -exec cp -v {} "${ARTIFACT_DIR}/" \;
-
-      cd "${ARTIFACT_DIR}"
-
-      #
-      # Produce checksums for all generated Debian packages.
-      #
-      sha256sum ./*.deb > SHA256SUMS
-
-      echo
-      echo "========================================"
-      echo "Artifact contents"
-      echo "========================================"
-
-      ls -lah
-
-      echo
-      echo "========================================"
-      echo "SHA256 checksums"
-      echo "========================================"
-
-      cat SHA256SUMS
-
-    displayName: Stage Python Debian package
-
-  #
-  # Publish the files as a downloadable Azure DevOps
-  # Pipeline Artifact.
-  #
-  - task: PublishPipelineArtifact@1
-    displayName: Publish Python Debian package
-
-    inputs:
-      targetPath: "$(Build.ArtifactStagingDirectory)/python-deb"
-      artifact: "python-3.15-debian-package"
-      publishLocation: "pipeline"
+      - task: PublishPipelineArtifact@1
+        displayName: Publish $(TARGET_ARCH) Python Debian package
+        inputs:
+          targetPath: "$(Build.ArtifactStagingDirectory)/python-deb-$(TARGET_ARCH)"
+          artifact: "python-3.15-debian-package-$(TARGET_ARCH)"
+          publishLocation: "pipeline"
